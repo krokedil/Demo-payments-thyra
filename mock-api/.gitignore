@@ -1,7 +1,0 @@
-/vendor/
-/data/*.sqlite
-/data/*.sqlite-*
-/.phpunit.cache/
-/.phpstan.cache/
-/.php-cs-fixer.cache
-/.env
