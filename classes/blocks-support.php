@@ -20,10 +20,12 @@ class KDP_Blocks_Support extends AbstractPaymentMethodType {
 
 	/**
 	 * Initialize the payment method settings.
+	 *
+	 * @return void
 	 */
 	public function initialize() {
-		$this->name     = 'kdp_gateway';
-		$this->settings = get_option( 'woocommerce_kdp_gateway_settings', array() );
+		$settings       = get_option( 'woocommerce_kdp_gateway_settings', array() );
+		$this->settings = is_array( $settings ) ? $settings : array();
 	}
 
 	/**
@@ -38,12 +40,18 @@ class KDP_Blocks_Support extends AbstractPaymentMethodType {
 	/**
 	 * Register the frontend script for the payment method.
 	 *
-	 * @return array
+	 * @return list<string>
 	 */
 	public function get_payment_method_script_handles() {
+		$script_url = plugins_url( '../assets/js/index.js', __FILE__ );
+		if ( '' === $script_url ) {
+			_doing_it_wrong( __METHOD__, 'The payment method script URL must not be empty.', '1.0.0' );
+			return array();
+		}
+
 		wp_register_script(
 			'kdp-blocks',
-			plugins_url( '../assets/js/index.js', __FILE__ ),
+			$script_url,
 			array( 'wc-blocks-registry', 'wc-settings', 'wp-element' ),
 			'1.0.0',
 			true
@@ -54,7 +62,12 @@ class KDP_Blocks_Support extends AbstractPaymentMethodType {
 	/**
 	 * Provide data for the block payment method.
 	 *
-	 * @return array
+	 * @return array{
+	 *     name: string,
+	 *     title: string,
+	 *     description: string,
+	 *     supports: list<string>
+	 * }
 	 */
 	public function get_payment_method_data() {
 		return array(

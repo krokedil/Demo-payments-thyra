@@ -6,6 +6,8 @@
  * Author: Thyra Nyström
  * Text Domain: krokedil-demo-payments
  * Requires at least: 7
+ * Requires PHP: 8.0
+ * Requires Plugins: woocommerce // Fixat
  *
  * @package KrokedilDemoPayments
  */
