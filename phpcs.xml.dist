@@ -2,9 +2,12 @@
 <ruleset name="Krokedil Demo Payments">
     <file>.</file>
     <exclude-pattern>vendor/*</exclude-pattern>
-    <exclude-pattern>mock-api/*</exclude-pattern>
     <exclude-pattern>node_modules/*</exclude-pattern>
     <arg name="extensions" value="php"/>
     <arg value="sp"/>
-    <rule ref="WordPress"/>
+    <rule ref="WordPress">
+        <exclude name="Generic.Files.OneObjectStructurePerFile.MultipleFound"/>
+        <exclude name="WordPress.Files.FileName.InvalidClassFileName"/>
+        <exclude name="WordPress.Security.NonceVerification.Recommended"/>
+    </rule>
 </ruleset>

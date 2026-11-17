@@ -1,28 +1,31 @@
 <?php
 /**
- * Mock-betalsida som spelar betalleverantör i redirect-läget.
- * Knapparna skickar tillbaka kunden till return_url med:
- *   &status=approved&transaction_id=TX1234   eller   &status=declined
+ * Mock payment page used as a provider in redirect mode.
+ *
+ * @package KrokedilDemoPayments
  */
-// Samma nyckel som i gatewayens inställningar. I verkligheten är det leverantören
-// som skapar nyckeln, och butiken klistrar in den i sina inställningar.
-// Vet att secrets ej ska ligga i klartext i koden, men detta är bara en demo. I verkligheten ska den ligga i databas eller config-fil.
+
+// Same key as in the gateway settings. In a real payment provider, this would be
+// kept in the database or a configuration file instead of in source code.
 const SHARED_SECRET = 'hmo<iRvl\_N25!u362IrC3;d';
 
-$return_url = $_GET['return_url'] ?? '';
-$order_id   = $_GET['order_id'] ?? '?';
-$amount     = $_GET['amount'] ?? '?';
+// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+$return_url = esc_url_raw( wp_unslash( $_GET['return_url'] ?? '' ) );
+// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+$order_id = absint( wp_unslash( $_GET['order_id'] ?? 0 ) );
+// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+$amount = sanitize_text_field( wp_unslash( $_GET['amount'] ?? '' ) );
 
-// Skicka bara tillbaka till riktiga webbadresser (inte t.ex. javascript:).
-$scheme = parse_url( $return_url, PHP_URL_SCHEME ); // parsar url
-// Om scheme inte http/https, skicka 400.
+// Only allow real HTTP(S) destinations to avoid javascript: payloads.
+$scheme = wp_parse_url( $return_url, PHP_URL_SCHEME );
 if ( ! in_array( $scheme, array( 'http', 'https' ), true ) ) {
 	http_response_code( 400 );
 	exit( 'Ogiltig eller saknad return_url.' );
 }
 
-// Verifiera att förfrågan kommer från butiken och inte har ändrats på vägen.
-$signature = $_GET['signature'] ?? '';
+// Verify that the request came from the store and was not altered in transit.
+// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+$signature = sanitize_text_field( wp_unslash( $_GET['signature'] ?? '' ) );
 $expected  = hash_hmac( 'sha256', implode( '|', array( $order_id, $amount, $return_url ) ), SHARED_SECRET );
 
 if ( ! hash_equals( $expected, $signature ) ) {
@@ -31,19 +34,42 @@ if ( ! hash_equals( $expected, $signature ) ) {
 	exit;
 }
 
-// Bygger länken tillbaka till butiken med resultatet.
+/**
+ * Build a return URL with query parameters.
+ *
+ * @param string $return_url Original return URL.
+ * @param array  $params     Query parameters.
+ * @return string
+ */
 function result_link( $return_url, $params ) {
-	$sep = ( strpos( $return_url, '?' ) === false ) ? '?' : '&';
-	return htmlspecialchars( $return_url . $sep . http_build_query( $params ) );
+	$sep = ( false === strpos( $return_url, '?' ) ) ? '?' : '&';
+	return $return_url . $sep . http_build_query( $params );
 }
 
-// Signerar resultatet: order, status, referens och belopp.
-// Ändras något av dem på vägen tillbaka blir signaturen ogiltig.
+/**
+ * Sign the result payload for a return trip.
+ *
+ * @param int    $order_id       Order identifier.
+ * @param string $status         Payment status.
+ * @param string $transaction_id Transaction reference.
+ * @param string $amount         Amount to verify.
+ * @return string
+ */
 function sign_result( $order_id, $status, $transaction_id, $amount ) {
 	$data = implode( '|', array( $order_id, $status, $transaction_id, $amount ) );
 	return hash_hmac( 'sha256', $data, SHARED_SECRET );
 }
 
+/**
+ * Create a signed callback URL.
+ *
+ * @param string $return_url     Original return URL.
+ * @param int    $order_id       Order identifier.
+ * @param string $status         Payment status.
+ * @param string $transaction_id Transaction reference.
+ * @param string $amount         Paid amount.
+ * @return string
+ */
 function signed_link( $return_url, $order_id, $status, $transaction_id, $amount ) {
 	return result_link(
 		$return_url,
@@ -61,7 +87,6 @@ $decline_url = signed_link( $return_url, $order_id, 'declined', '', $amount );
 ?>
 <!doctype html>
 <html lang="sv">
-
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
@@ -94,14 +119,12 @@ $decline_url = signed_link( $return_url, $order_id, 'declined', '', $amount );
 		}
 	</style>
 </head>
-
 <body>
 	<h1>Mock-betalning</h1>
-	<p>Order <strong><?php echo htmlspecialchars( $order_id ); ?></strong><br>
-		Belopp <strong><?php echo htmlspecialchars( $amount ); ?></strong></p>
+	<p>Order <strong><?php echo esc_html( (string) $order_id ); ?></strong><br>
+		Belopp <strong><?php echo esc_html( $amount ); ?></strong></p>
 
-	<a class="approve" href="<?php echo $approve_url; ?>">Godkänn</a>
-	<a class="decline" href="<?php echo $decline_url; ?>">Neka</a>
+	<a class="approve" href="<?php echo esc_url( $approve_url ); ?>">Godkänn</a>
+	<a class="decline" href="<?php echo esc_url( $decline_url ); ?>">Neka</a>
 </body>
-
 </html>
