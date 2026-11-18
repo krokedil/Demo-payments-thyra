@@ -6,6 +6,7 @@
  * Author: Thyra Nyström
  * Text Domain: krokedil-demo-payments
  * Requires at least: 7
+ * Requires Plugins: woocommerce
  *
  * @package KrokedilDemoPayments
  */
@@ -36,8 +37,11 @@ add_action( 'plugins_loaded', 'kdp_init' );
  * @return void
  */
 function kdp_init() {
+	// "Requires Plugins: woocommerce" i headern gör att WordPress inte låter pluginet aktiveras
+	// utan WooCommerce, och visar själv ett meddelande under Tillägg. Kontrollen här skyddar om
+	// WooCommerce ändå saknas, till exempel om mappen har tagits bort. Då laddas inget, eftersom
+	// klasserna bygger på WooCommerce och annars skulle ge ett fatalt fel.
 	if ( ! class_exists( 'WooCommerce' ) ) {
-		// Visa felmeddelande.
 		return;
 	}
 
