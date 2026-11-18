@@ -1,6 +1,7 @@
 parameters:
 	level: 9
 	paths:
+		- classes
 		- krokedil-demo-payments.php
 	bootstrapFiles:
 		- vendor/php-stubs/woocommerce-stubs/woocommerce-stubs.php
