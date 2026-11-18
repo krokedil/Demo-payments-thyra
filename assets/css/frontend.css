@@ -1,0 +1,5 @@
+/* Gör betalsättens ikoner lagom stora i kassan. */
+.wc_payment_method label img {
+	max-height: 30px !important;
+	width: auto !important;
+}
