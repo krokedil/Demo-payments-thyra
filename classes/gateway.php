@@ -6,7 +6,10 @@
  */
 
 /**
- * Betalningsmetoden.
+ * Betalningsmetoden, med tre lägen:
+ * - Manuellt: inget API-anrop, ordern väntar på manuell bekräftelse.
+ * - Inline: butikens server anropar betal-API:t medan kunden stannar i kassan.
+ * - Redirect: kunden skickas till en betalsida och tillbaka till handle_return().
  */
 class KDP_WC_Gateway extends WC_Payment_Gateway {
 
@@ -19,7 +22,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	public function __construct() {
 		$this->id                 = 'kdp_gateway';
 		$this->method_title       = 'Krokedil Demo Payments';
-		$this->method_description = 'En demo-betalningsmetod';
+		$this->method_description = __( 'En demo-betalningsmetod', 'krokedil-demo-payments' );
 		$this->icon               = plugin_dir_url( __DIR__ ) . 'icon.jpg';
 
 		$this->init_form_fields();
@@ -28,7 +31,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 		$this->title       = $this->get_option( 'title' );
 		$this->description = $this->get_option( 'description' );
 
-		// Hook för att spara inställningar.
+		// Sparar inställningarna när butiksägaren klickar på Spara.
 		add_action(
 			'woocommerce_update_options_payment_gateways_' . $this->id,
 			function () {
@@ -36,7 +39,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			}
 		);
 
-		add_action( 'woocommerce_thankyou_kdp_gateway', array( $this, 'kdp_thankyou_page' ) );
+		add_action( 'woocommerce_thankyou_' . $this->id, array( $this, 'kdp_thankyou_page' ) );
 		add_action( 'woocommerce_email_after_order_table', array( $this, 'kdp_email_instructions' ), 10, 3 );
 
 		// Tar emot kunden när hen kommer tillbaka från betalsidan (redirect-läget).
@@ -44,75 +47,15 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Inställningar för betalningsmetoden.
+	 * Inställningsfälten finns i KDP_Settings.
 	 *
 	 * @return void
 	 */
 	public function init_form_fields() {
-		$this->form_fields = array(
-			'enabled'       => array(
-				'title'   => __( 'Aktivera', 'krokedil-demo-payments' ),
-				'type'    => 'checkbox',
-				'label'   => __( 'Aktivera Krokedil Demo Payments', 'krokedil-demo-payments' ),
-				'default' => 'yes',
-			),
-			'title'         => array(
-				'title'       => __( 'Rubrik', 'krokedil-demo-payments' ),
-				'type'        => 'text',
-				'description' => __( 'Visas som betalningsalternativ i kassan.', 'krokedil-demo-payments' ),
-				'default'     => __( 'Krokedil Demo Payments', 'krokedil-demo-payments' ),
-				'desc_tip'    => true,
-			),
-			'description'   => array(
-				'title'       => __( 'Beskrivning', 'krokedil-demo-payments' ),
-				'type'        => 'textarea',
-				'description' => __( 'Visas under betalningsalternativet i kassan.', 'krokedil-demo-payments' ),
-				'default'     => __( 'Betala med Krokedil Demo Payments!', 'krokedil-demo-payments' ),
-				'desc_tip'    => true,
-			),
-			'instructions'  => array(
-				'title'       => __( 'Instruktioner', 'krokedil-demo-payments' ),
-				'type'        => 'textarea',
-				'description' => __( 'Visas på tack-sidan och i ordermejlen.', 'krokedil-demo-payments' ),
-				'default'     => __( 'Tack för din beställning!', 'krokedil-demo-payments' ),
-				'desc_tip'    => true,
-			),
-			'endpoint_url'  => array(
-				'title'       => 'Endpoint-URL',
-				'type'        => 'url',
-				'description' => 'Adress till betal-API:t (test eller produktion).',
-				'default'     => '',
-			),
-			'mode'          => array(
-				'title'   => 'Läge',
-				'type'    => 'select',
-				'options' => array(
-					'manual'   => 'Manuellt',
-					'inline'   => 'Inline',
-					'redirect' => 'Redirect',
-				),
-				'default' => 'manual',
-			),
-			'logging'       => array(
-				'title'       => __( 'Loggning', 'krokedil-demo-payments' ),
-				'type'        => 'checkbox',
-				'label'       => __( 'Logga händelser och API-anrop', 'krokedil-demo-payments' ),
-				'description' => sprintf(
-					/* translators: %s: adress till WooCommerces loggsida. */
-					__( 'Loggarna finns under <a href="%s">WooCommerce → Status → Loggar</a> med källan "krokedil-demo-payments".', 'krokedil-demo-payments' ),
-					esc_url( admin_url( 'admin.php?page=wc-status&tab=logs' ) )
-				),
-				'default'     => 'yes',
-			),
-			// Används för att signera och verifiera redirect-flödet.
-			'shared_secret' => array(
-				'title'       => __( 'Delad hemlighet', 'krokedil-demo-payments' ),
-				'type'        => 'password',
-				'description' => __( 'Nyckeln som betalleverantören signerar svaren med. Måste vara samma som i betalsidan.', 'krokedil-demo-payments' ),
-				'default'     => '',
-			),
-		);
+		$this->form_fields = KDP_Settings::fields();
 	}
+
+	/* ---------- Betalningen ---------- */
 
 	/**
 	 * Körs när kunden lägger beställningen.
@@ -122,34 +65,453 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 */
 	public function process_payment( $order_id ) {
 		$order = wc_get_order( $order_id );
-		$mode  = $this->get_option( 'mode' );
 
 		// wc_get_order() kan returnera false eller en återbetalning.
 		if ( ! $order instanceof WC_Order ) {
-			return array( 'result' => 'failure' );
+			return $this->failure();
 		}
 
-		// MANUELLT: inget API-anrop. Ordern väntar på att någon bekräftar betalningen i efterhand.
+		$mode = $this->get_option( 'mode' );
 		if ( 'manual' === $mode ) {
-			$order->update_status( 'on-hold', 'Väntar på manuell betalning.' );
-			WC()->cart->empty_cart();
-			return array(
-				'result'   => 'success',
-				'redirect' => $this->get_return_url( $order ),
-			);
+			return $this->process_manual( $order );
 		}
 
-		// Inline och redirect behöver en adress. Den kommer från inställningarna,
-		// så att test- och produktionsmiljö kan ha olika adresser utan kodändring.
-		$endpoint = trim( $this->get_option( 'endpoint_url' ) );
-
-		if ( '' === $endpoint || ! wp_http_validate_url( $endpoint ) ) {
+		$endpoint = $this->get_endpoint();
+		if ( '' === $endpoint ) {
 			return $this->outcome_error( $order, 'Endpoint-URL saknas eller är ogiltig.' );
 		}
 
 		// Läget är manual, inline eller redirect, och manual hanteras ovan.
 		return 'inline' === $mode ? $this->process_inline( $order, $endpoint ) : $this->process_redirect( $order, $endpoint );
 	}
+
+	/**
+	 * Manuellt: inget API-anrop. Ordern väntar på att någon bekräftar betalningen i efterhand.
+	 *
+	 * @param WC_Order $order Ordern.
+	 * @return array<string, string>
+	 */
+	private function process_manual( $order ) {
+		$order->update_status( 'on-hold', 'Väntar på manuell betalning.' );
+		WC()->cart->empty_cart();
+		return $this->success( $order );
+	}
+
+	/**
+	 * Endpoint-URL:en från inställningarna, eller en tom sträng om den saknas eller är ogiltig.
+	 *
+	 * Adressen kommer från inställningarna, så att test- och produktionsmiljö kan ha olika
+	 * adresser utan kodändring.
+	 *
+	 * @return string
+	 */
+	private function get_endpoint() {
+		$endpoint = trim( $this->get_option( 'endpoint_url' ) );
+		return wp_http_validate_url( $endpoint ) ? $endpoint : '';
+	}
+
+	/* ---------- Inline ---------- */
+
+	/**
+	 * Inline: anropar betal-API:t och hanterar svaret medan kunden stannar i kassan.
+	 *
+	 * @param WC_Order $order    Ordern.
+	 * @param string   $endpoint Adress till betal-API:t.
+	 * @return array<string, string>
+	 */
+	private function process_inline( $order, $endpoint ) {
+		$response = $this->send_inline_request( $order, $endpoint );
+
+		// FEL 1: anropet nådde aldrig fram (timeout, DNS, nätverk, blockerad av proxy ...).
+		if ( is_wp_error( $response ) ) {
+			return $this->handle_connection_error( $order, $response );
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		$raw  = wp_remote_retrieve_body( $response );
+		$this->log( "Svar från leverantören: HTTP {$code}, body: " . substr( $raw, 0, 500 ), 'info', $order );
+
+		// FEL 2: servern svarade, men med en felkod (t.ex. 400 eller 500).
+		if ( $code < 200 || $code >= 300 ) {
+			return $this->outcome_error( $order, "HTTP {$code}: " . substr( $raw, 0, 200 ) );
+		}
+
+		// FEL 3: 200 OK men svaret går inte att tolka (trasig JSON eller saknad status).
+		$data = json_decode( $raw, true );
+		if ( ! is_array( $data ) || empty( $data['status'] ) ) {
+			return $this->outcome_unknown( $order, 'Ogiltig JSON: ' . substr( $raw, 0, 200 ) );
+		}
+
+		return $this->handle_inline_status( $order, $data );
+	}
+
+	/**
+	 * Skickar betalförfrågan med WordPress HTTP-API, som följer sajtens proxy-, timeout-,
+	 * SSL- och filterinställningar.
+	 *
+	 * @param WC_Order $order    Ordern.
+	 * @param string   $endpoint Adress till betal-API:t.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	private function send_inline_request( $order, $endpoint ) {
+		$this->log( sprintf( 'Skickar betalförfrågan till %s (%s %s).', $endpoint, $order->get_total(), $order->get_currency() ), 'info', $order );
+
+		return wp_remote_post(
+			$endpoint,
+			array(
+				'timeout' => 15,
+				'headers' => array( 'Content-Type' => 'application/json' ),
+				'body'    => (string) wp_json_encode(
+					array(
+						'order_id' => $order->get_id(),
+						'amount'   => $order->get_total(),
+						'currency' => $order->get_currency(),
+					)
+				),
+			)
+		);
+	}
+
+	/**
+	 * Anropet nådde aldrig fram.
+	 *
+	 * Vid timeout vet vi inte om betalningen gick igenom, så ordern väntar på manuell kontroll.
+	 * Andra anslutningsfel betyder att ingen kan ha debiterats.
+	 *
+	 * @param WC_Order $order Ordern.
+	 * @param WP_Error $error Felet från WordPress HTTP-API.
+	 * @return array<string, string>
+	 */
+	private function handle_connection_error( $order, $error ) {
+		if ( $this->is_timeout( $error ) ) {
+			return $this->outcome_unknown( $order, 'Timeout: ' . $error->get_error_message() );
+		}
+
+		return $this->outcome_error( $order, 'Anslutningsfel: ' . $error->get_error_message() );
+	}
+
+	/**
+	 * Väljer utfall efter statusen i ett giltigt svar.
+	 *
+	 * @param WC_Order            $order Ordern.
+	 * @param array<mixed, mixed> $data  Det avkodade svaret.
+	 * @return array<string, string>
+	 */
+	private function handle_inline_status( $order, $data ) {
+		$status    = $this->text_field( $data, 'status', '' );
+		$reference = $this->text_field( $data, 'transaction_id', '' );
+
+		switch ( $status ) {
+			case 'approved':
+				return $this->outcome_approved( $order, $reference );
+			case 'pending':
+				return $this->outcome_pending( $order, $reference );
+			case 'declined':
+				return $this->outcome_declined( $order, $reference, $this->text_field( $data, 'reason', 'okänd orsak' ) );
+			default:
+				// Status vi inte känner igen: aldrig godkänt, men inte heller säkert nekat.
+				return $this->outcome_unknown( $order, 'Okänd status från leverantören: ' . $status );
+		}
+	}
+
+	/* ---------- Redirect ---------- */
+
+	/**
+	 * Redirect: skickar kunden till leverantörens betalsida med en signerad förfrågan.
+	 *
+	 * Ordern ligger kvar som "pending" tills kunden kommer tillbaka till handle_return().
+	 *
+	 * @param WC_Order $order    Ordern.
+	 * @param string   $endpoint Adress till betalsidan.
+	 * @return array<string, string>
+	 */
+	private function process_redirect( $order, $endpoint ) {
+		if ( '' === $this->get_option( 'shared_secret' ) ) {
+			return $this->outcome_error( $order, 'Delad hemlighet saknas, kan inte signera förfrågan.' );
+		}
+
+		$return_url = $this->get_return_url_for_provider( $order );
+		// Beloppet räknas ut en gång så att signaturen och URL:en garanterat har samma värde.
+		$amount = $this->format_amount( $order->get_total() );
+
+		$pay_url = add_query_arg(
+			array(
+				'order_id'   => $order->get_id(),
+				'amount'     => $amount,
+				'return_url' => rawurlencode( $return_url ),
+				// Om order, belopp eller retur-URL ändras på vägen blir signaturen ogiltig.
+				'signature'  => $this->sign( array( $order->get_id(), $amount, $return_url ) ),
+			),
+			$endpoint
+		);
+
+		return array(
+			'result'   => 'success',
+			'redirect' => $pay_url,
+		);
+	}
+
+	/**
+	 * Adressen kunden ska tillbaka till. Byggs av WooCommerce, inte hårdkodad.
+	 * Order-nyckeln gör att ingen kan gissa sig till någon annans order.
+	 *
+	 * @param WC_Order $order Ordern.
+	 * @return string
+	 */
+	private function get_return_url_for_provider( $order ) {
+		return add_query_arg(
+			array(
+				'order_id' => $order->get_id(),
+				'key'      => $order->get_order_key(),
+			),
+			WC()->api_request_url( $this->id . '_return' )
+		);
+	}
+
+	/**
+	 * Kunden kommer tillbaka från betalsidan.
+	 *
+	 * Statusen i adressen godtas bara om signaturen stämmer med den delade hemligheten,
+	 * eftersom vem som helst kan ändra en adress.
+	 *
+	 * @return void
+	 */
+	public function handle_return() {
+		$params = $this->get_return_params();
+		$order  = $this->get_returned_order( $params );
+
+		if ( ! $this->is_valid_return_signature( $params ) ) {
+			$this->reject_return( $order, $params['status'] );
+		}
+
+		// Signaturen är giltig, men stämmer beloppet med ordern? Skyddar mot att någon ändrar
+		// beloppet i URL:en på väg TILL betalsidan och betalar 1 kr för en order på 390 kr.
+		$order_amount = $this->format_amount( $order->get_total() );
+		if ( $params['amount'] !== $order_amount ) {
+			$result = $this->outcome_unknown( $order, "Beloppet stämmer inte: betalt {$params['amount']}, ordern är {$order_amount}." );
+			$this->redirect( $result['redirect'] );
+		}
+
+		$this->log( 'Kunden kom tillbaka från betalsidan med status: ' . $this->or_missing( $params['status'] ), 'info', $order );
+
+		// Redan betald (t.ex. kunden laddade om sidan): hantera inte samma retur två gånger.
+		if ( $order->is_paid() ) {
+			$this->redirect( $this->get_return_url( $order ) );
+		}
+
+		$result = $this->handle_return_status( $order, $params['status'], $params['reference'] );
+
+		// Lyckat → tack-sidan. Misslyckat → tillbaka till kassan där felmeddelandet visas.
+		$this->redirect( 'success' === $result['result'] ? $result['redirect'] : wc_get_checkout_url() );
+	}
+
+	/**
+	 * Parametrarna som betalsidan skickar tillbaka.
+	 *
+	 * @return array{order_id: int, key: string, status: string, reference: string, amount: string, signature: string}
+	 */
+	private function get_return_params() {
+		return array(
+			'order_id'  => absint( $this->query_arg( 'order_id' ) ),
+			'key'       => $this->query_arg( 'key' ),
+			'status'    => sanitize_key( $this->query_arg( 'status' ) ),
+			'reference' => $this->query_arg( 'transaction_id' ),
+			'amount'    => $this->query_arg( 'amount' ),
+			'signature' => $this->query_arg( 'signature' ),
+		);
+	}
+
+	/**
+	 * Ordern som returen gäller. Avbryter med ett fel om ordern inte finns, om order-nyckeln
+	 * inte stämmer (annars kan vem som helst ändra andras ordrar) eller om ingen hemlighet finns.
+	 *
+	 * @param array{order_id: int, key: string} $params Returparametrarna.
+	 * @return WC_Order
+	 */
+	private function get_returned_order( $params ) {
+		$order = $params['order_id'] ? wc_get_order( $params['order_id'] ) : false;
+
+		if ( ! $order instanceof WC_Order || ! $order->key_is_valid( $params['key'] ) || $this->id !== $order->get_payment_method() ) {
+			wp_die( esc_html__( 'Ogiltig order.', 'krokedil-demo-payments' ), esc_html__( 'Fel', 'krokedil-demo-payments' ), array( 'response' => 400 ) );
+		}
+
+		// Felkonfiguration: utan nyckel kan inget svar verifieras, så inget godkänns.
+		if ( '' === $this->get_option( 'shared_secret' ) ) {
+			$this->log( 'Delad hemlighet saknas i inställningarna, retur kan inte verifieras.', 'error', $order );
+			wp_die( esc_html__( 'Betalsättet är inte korrekt konfigurerat.', 'krokedil-demo-payments' ), esc_html__( 'Fel', 'krokedil-demo-payments' ), array( 'response' => 500 ) );
+		}
+
+		return $order;
+	}
+
+	/**
+	 * Kontrollerar att returen kommer från betalleverantören.
+	 *
+	 * Jämförelsen med hash_equals() tar lika lång tid oavsett var signaturerna skiljer sig,
+	 * så att man inte kan gissa signaturen tecken för tecken.
+	 *
+	 * @param array{order_id: int, status: string, reference: string, amount: string, signature: string} $params Returparametrarna.
+	 * @return bool
+	 */
+	private function is_valid_return_signature( $params ) {
+		$expected = $this->sign( array( $params['order_id'], $params['status'], $params['reference'], $params['amount'] ) );
+		return hash_equals( $expected, $params['signature'] );
+	}
+
+	/**
+	 * Avvisar en retur med ogiltig signatur. Orderstatusen ändras inte.
+	 *
+	 * @param WC_Order $order  Ordern.
+	 * @param string   $status Statusen i adressen.
+	 * @return never
+	 */
+	private function reject_return( $order, $status ) {
+		$this->log( 'OGILTIG SIGNATUR vid retur. Möjligt manipulationsförsök. Status i URL: ' . $status, 'error', $order );
+		$order->add_order_note( 'Retur med ogiltig signatur avvisades. Orderstatus ändrades inte.' );
+		wc_add_notice( esc_html__( 'Betalningen kunde inte verifieras. Kontakta butiken om du har betalat.', 'krokedil-demo-payments' ), 'error' );
+		$this->redirect( wc_get_checkout_url() );
+	}
+
+	/**
+	 * Väljer utfall efter statusen från betalsidan.
+	 *
+	 * @param WC_Order $order     Ordern.
+	 * @param string   $status    Statusen från betalsidan.
+	 * @param string   $reference Leverantörens referens.
+	 * @return array<string, string>
+	 */
+	private function handle_return_status( $order, $status, $reference ) {
+		switch ( $status ) {
+			case 'approved':
+				return $this->outcome_approved( $order, $reference );
+			case 'declined':
+				return $this->outcome_declined( $order, $reference, 'nekad på betalsidan' );
+			default:
+				// Betalsidan skickar bara approved eller declined. Annat ger on-hold för manuell kontroll.
+				return $this->outcome_unknown( $order, 'Okänd status vid retur: ' . $this->or_missing( $status ) );
+		}
+	}
+
+	/* ---------- Utfall ---------- */
+
+	/**
+	 * GODKÄNT: status processing, lagret dras, referensen sparas.
+	 *
+	 * @param WC_Order $order     Ordern.
+	 * @param string   $reference Leverantörens referens.
+	 * @return array<string, string>
+	 */
+	private function outcome_approved( $order, $reference ) {
+		$this->log( 'Godkänd. Referens: ' . $this->or_missing( $reference ), 'info', $order );
+
+		// payment_complete() sparar transaktions-ID, sätter betaldatum,
+		// byter status till processing och drar lagret.
+		$order->payment_complete( $reference );
+		$order->add_order_note(
+			'' !== $reference
+				? 'Betalning godkänd. Leverantörens referens: ' . $reference
+				: 'Betalning godkänd, men leverantören skickade ingen referens. Stäm av manuellt.'
+		);
+
+		WC()->cart->empty_cart();
+		return $this->success( $order );
+	}
+
+	/**
+	 * VÄNTANDE: status on-hold, lagret reserveras.
+	 *
+	 * @param WC_Order $order     Ordern.
+	 * @param string   $reference Leverantörens referens.
+	 * @return array<string, string>
+	 */
+	private function outcome_pending( $order, $reference ) {
+		$this->log( 'Väntande. Referens: ' . $this->or_missing( $reference ), 'info', $order );
+		$this->save_reference( $order, $reference );
+
+		// WooCommerce drar lagret automatiskt när status blir on-hold.
+		$order->update_status( 'on-hold', 'Betalningen väntar på bekräftelse från leverantören. Referens: ' . $this->or_missing( $reference ) );
+
+		WC()->cart->empty_cart();
+		return $this->success( $order );
+	}
+
+	/**
+	 * NEKAT: status failed, lagret återställs, kunden stannar i kassan.
+	 *
+	 * @param WC_Order $order     Ordern.
+	 * @param string   $reference Leverantörens referens.
+	 * @param string   $reason    Orsaken till att betalningen nekades.
+	 * @return array<string, string>
+	 */
+	private function outcome_declined( $order, $reference, $reason ) {
+		$this->log( "Nekad ({$reason}). Referens: " . $this->or_missing( $reference ), 'warning', $order );
+		$this->save_reference( $order, $reference );
+
+		// Lämna tillbaka lager om det redan dragits (t.ex. vid ett tidigare försök som blev on-hold).
+		// Funktionen gör ingenting om inget lager har dragits.
+		wc_increase_stock_levels( $order );
+		$order->update_status( 'failed', "Betalningen nekades ({$reason}). Referens: " . $this->or_missing( $reference ) );
+
+		wc_add_notice( esc_html__( 'Betalningen nekades. Försök igen eller välj ett annat betalsätt.', 'krokedil-demo-payments' ), 'error' );
+		return $this->failure();
+	}
+
+	/**
+	 * TEKNISKT FEL (säkert ingen betalning): som nekat, men loggas.
+	 *
+	 * @param WC_Order $order   Ordern.
+	 * @param string   $message Felmeddelande.
+	 * @return array<string, string>
+	 */
+	private function outcome_error( $order, $message ) {
+		$this->log( 'Tekniskt fel: ' . $message, 'error', $order );
+
+		wc_increase_stock_levels( $order );
+		$order->update_status( 'failed', 'Tekniskt fel, ingen betalning genomförd: ' . $message );
+
+		wc_add_notice( esc_html__( 'Betalningen kunde inte genomföras just nu. Försök igen om en stund.', 'krokedil-demo-payments' ), 'error' );
+		return $this->failure();
+	}
+
+	/**
+	 * OKÄNT UTFALL (timeout, otolkbart svar): on-hold, en människa kontrollerar.
+	 *
+	 * @param WC_Order $order   Ordern.
+	 * @param string   $message Felmeddelande.
+	 * @return array<string, string>
+	 */
+	private function outcome_unknown( $order, $message ) {
+		$this->log( 'OKÄNT UTFALL, kräver manuell kontroll: ' . $message, 'error', $order );
+		$order->update_status( 'on-hold', 'OKÄNT UTFALL. Kontrollera hos betalleverantören innan kunden debiteras igen. ' . $message );
+
+		// Kunden får inte försöka igen i kassan (risk för dubbeldebitering).
+		WC()->cart->empty_cart();
+		return $this->success( $order );
+	}
+
+	/**
+	 * Svaret till WooCommerce när kunden ska till tack-sidan.
+	 *
+	 * @param WC_Order $order Ordern.
+	 * @return array<string, string>
+	 */
+	private function success( $order ) {
+		return array(
+			'result'   => 'success',
+			'redirect' => $this->get_return_url( $order ),
+		);
+	}
+
+	/**
+	 * Svaret till WooCommerce när kunden ska stanna i kassan.
+	 *
+	 * @return array<string, string>
+	 */
+	private function failure() {
+		return array( 'result' => 'failure' );
+	}
+
+	/* ---------- Tack-sidan och mejlen ---------- */
 
 	/**
 	 * Tack-sidan: visar inställningen "Instruktioner".
@@ -178,24 +540,13 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * Skriver ut inställningen "Instruktioner". Tack-sidan och mejlen använder samma funktion,
 	 * så att det butiksägaren skriver i inställningen alltid syns på båda ställena.
 	 *
-	 * Instruktionerna visas bara för ordrar med det här betalsättet som är betalda eller pausade,
-	 * inte när betalningen har misslyckats.
-	 *
 	 * @param WC_Order|WC_Order_Refund|false $order      Ordern.
 	 * @param bool                           $plain_text Om texten ska skrivas ut för ett textmejl.
 	 * @return void
 	 */
 	private function print_instructions( $order, $plain_text = false ) {
-		if ( ! $order instanceof WC_Order || $this->id !== $order->get_payment_method() ) {
-			return;
-		}
-
-		if ( ! $order->is_paid() && ! $order->has_status( 'on-hold' ) ) {
-			return;
-		}
-
 		$instructions = trim( $this->get_option( 'instructions' ) );
-		if ( '' === $instructions ) {
+		if ( '' === $instructions || ! $this->should_show_instructions( $order ) ) {
 			return;
 		}
 
@@ -209,306 +560,41 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Inline: anropar betal-API:t och hanterar svaret medan kunden stannar i kassan.
+	 * Instruktionerna visas bara för ordrar med det här betalsättet som är betalda eller pausade,
+	 * inte när betalningen har misslyckats.
 	 *
-	 * @param WC_Order $order    Ordern.
-	 * @param string   $endpoint Adress till betal-API:t.
-	 * @return array<string, string>
+	 * @param WC_Order|WC_Order_Refund|false $order Ordern.
+	 * @return bool
+	 * @phpstan-assert-if-true WC_Order $order
 	 */
-	private function process_inline( $order, $endpoint ) {
-		$this->log( sprintf( 'Skickar betalförfrågan till %s (%s %s).', $endpoint, $order->get_total(), $order->get_currency() ), 'info', $order );
-		// WordPress HTTP-API i stället för curl/file_get_contents:
-		// följer sajtens proxy-, timeout-, SSL- och filterinställningar.
-		$response = wp_remote_post(
-			$endpoint,
-			array(
-				'timeout' => 15,
-				'headers' => array( 'Content-Type' => 'application/json' ),
-				'body'    => (string) wp_json_encode(
-					array(
-						'order_id' => $order->get_id(),
-						'amount'   => $order->get_total(),
-						'currency' => $order->get_currency(),
-					)
-				),
-			)
-		);
-
-		// FEL 1: anropet nådde aldrig fram (timeout, DNS, nätverk, blockerad av proxy ...).
-		if ( is_wp_error( $response ) ) {
-			if ( $this->is_timeout( $response ) ) {
-				// Vi vet inte om betalningen gick igenom, så kunden får inte försöka igen.
-				return $this->outcome_unknown( $order, 'Timeout: ' . $response->get_error_message() );
-			}
-			// Förfrågan nådde aldrig fram, så ingen kan ha debiterats.
-			return $this->outcome_error( $order, 'Anslutningsfel: ' . $response->get_error_message() );
-		}
-
-		$code = wp_remote_retrieve_response_code( $response );
-		$raw  = wp_remote_retrieve_body( $response );
-		$this->log( "Svar från leverantören: HTTP {$code}, body: " . substr( $raw, 0, 500 ), 'info', $order );
-		$data = json_decode( $raw, true );
-
-		// FEL 2: servern svarade, men med en felkod (t.ex. 400 eller 500).
-		if ( $code < 200 || $code >= 300 ) {
-			return $this->outcome_error( $order, "HTTP {$code}: " . substr( $raw, 0, 200 ) );
-		}
-
-		// FEL 3: 200 OK men svaret går inte att tolka (trasig JSON eller saknad status).
-		if ( json_last_error() !== JSON_ERROR_NONE || ! is_array( $data ) || empty( $data['status'] ) ) {
-			return $this->outcome_unknown( $order, 'Ogiltig JSON: ' . substr( $raw, 0, 200 ) );
-		}
-
-		// Svaret är giltigt, agera utifrån status. JSON-värdena kontrolleras så att de är text.
-		$status    = is_string( $data['status'] ) ? $data['status'] : '';
-		$reason    = is_string( $data['reason'] ?? null ) ? $data['reason'] : 'okänd orsak';
-		$reference = sanitize_text_field( is_string( $data['transaction_id'] ?? null ) ? $data['transaction_id'] : '' );
-
-		switch ( $status ) {
-			case 'approved':
-				return $this->outcome_approved( $order, $reference );
-			case 'pending':
-				return $this->outcome_pending( $order, $reference );
-			case 'declined':
-				return $this->outcome_declined( $order, $reference, sanitize_text_field( $reason ) );
-			default:
-				// Status vi inte känner igen: aldrig godkänt, men inte heller säkert nekat.
-				return $this->outcome_unknown( $order, 'Okänd status från leverantören: ' . sanitize_text_field( $status ) );
-		}
-	}
-
-	/**
-	 * Redirect: skickar kunden till leverantörens betalsida.
-	 *
-	 * @param WC_Order $order    Ordern.
-	 * @param string   $endpoint Adress till betalsidan.
-	 * @return array<string, string>
-	 */
-	private function process_redirect( $order, $endpoint ) {
-		$secret = $this->get_option( 'shared_secret' );
-		if ( '' === $secret ) {
-			return $this->outcome_error( $order, 'Delad hemlighet saknas, kan inte signera förfrågan.' );
-		}
-
-		// Adressen kunden ska tillbaka till. Byggs av WooCommerce, inte hårdkodad.
-		// Order-nyckeln gör att ingen kan gissa sig till någon annans order.
-		$return_url = add_query_arg(
-			array(
-				'order_id' => $order->get_id(),
-				'key'      => $order->get_order_key(),
-			),
-			WC()->api_request_url( $this->id . '_return' )
-		);
-
-		// Beloppet räknas ut en gång så att signaturen och URL:en garanterat har samma värde.
-		$amount = $this->format_amount( $order->get_total() );
-		// Signatur: order, belopp och retur-URL. Om något ändras på vägen blir signaturen ogiltig.
-		$signature = hash_hmac( 'sha256', implode( '|', array( $order->get_id(), $amount, $return_url ) ), $secret );
-
-		// Leverantörens betalsida = endpoint-URL:en från inställningarna + orderinfo.
-		$pay_url = add_query_arg(
-			array(
-				'order_id'   => $order->get_id(),
-				'amount'     => $amount,
-				'return_url' => rawurlencode( $return_url ),
-				'signature'  => $signature,
-			),
-			$endpoint
-		);
-
-		// Ordern ligger kvar som "pending" tills kunden kommer tillbaka till handle_return().
-		return array(
-			'result'   => 'success',
-			'redirect' => $pay_url,
-		);
-	}
-
-	/**
-	 * Kunden kommer tillbaka från betalsidan.
-	 *
-	 * Statusen i adressen godtas bara om signaturen stämmer med den delade hemligheten,
-	 * eftersom vem som helst kan ändra en adress.
-	 *
-	 * @return void
-	 */
-	public function handle_return() {
-		$order_id  = absint( $this->query_arg( 'order_id' ) );
-		$key       = $this->query_arg( 'key' );
-		$status    = sanitize_key( $this->query_arg( 'status' ) );
-		$reference = $this->query_arg( 'transaction_id' );
-		$order     = $order_id ? wc_get_order( $order_id ) : false;
-
-		// Order-nyckeln måste stämma, annars kan vem som helst ändra andras ordrar.
-		if ( ! $order instanceof WC_Order || ! $order->key_is_valid( $key ) || $this->id !== $order->get_payment_method() ) {
-			wp_die( esc_html( 'Ogiltig order.' ), esc_html( 'Fel' ), array( 'response' => 400 ) );
-		}
-
-		// --- Verifiera att svaret kommer från betalleverantören ---
-		$secret    = $this->get_option( 'shared_secret' );
-		$amount    = $this->query_arg( 'amount' );
-		$signature = $this->query_arg( 'signature' );
-
-		if ( '' === $secret ) {
-			// Felkonfiguration: utan nyckel kan inget svar verifieras, så inget godkänns.
-			$this->log( 'Delad hemlighet saknas i inställningarna, retur kan inte verifieras.', 'error', $order );
-			wp_die( esc_html( 'Betalsättet är inte korrekt konfigurerat.' ), esc_html( 'Fel' ), array( 'response' => 500 ) );
-		}
-
-		$expected = hash_hmac( 'sha256', implode( '|', array( $order_id, $status, $reference, $amount ) ), $secret );
-
-		// hash_equals() jämför på konstant tid, så att man inte kan gissa signaturen tecken för tecken.
-		if ( ! hash_equals( $expected, $signature ) ) {
-			$this->log( 'OGILTIG SIGNATUR vid retur. Möjligt manipulationsförsök. Status i URL: ' . $status, 'error', $order );
-			$order->add_order_note( 'Retur med ogiltig signatur avvisades. Orderstatus ändrades inte.' );
-			wc_add_notice( esc_html( 'Betalningen kunde inte verifieras. Kontakta butiken om du har betalat.' ), 'error' );
-			wp_safe_redirect( wc_get_checkout_url() );
-			exit;
-		}
-
-		// Signaturen är giltig, men stämmer beloppet med ordern?
-		// Skyddar mot att någon ändrar beloppet i URL:en på väg TILL betalsidan
-		// och betalar 1 kr för en order på 390 kr.
-		if ( $amount !== $this->format_amount( $order->get_total() ) ) {
-			$result = $this->outcome_unknown( $order, "Beloppet stämmer inte: betalt {$amount}, ordern är " . $this->format_amount( $order->get_total() ) . '.' );
-			wp_safe_redirect( $result['redirect'] );
-			exit;
-		}
-
-		$this->log( 'Kunden kom tillbaka från betalsidan med status: ' . ( $status ? $status : 'saknas' ), 'info', $order );
-
-		// Redan betald (t.ex. kunden laddade om sidan): hantera inte samma retur två gånger.
-		if ( $order->is_paid() ) {
-			wp_safe_redirect( $this->get_return_url( $order ) );
-			exit;
-		}
-
-		switch ( $status ) {
-			case 'approved':
-				$result = $this->outcome_approved( $order, $reference );
-				break;
-			case 'declined':
-				$result = $this->outcome_declined( $order, $reference, 'nekad på betalsidan' );
-				break;
-			default:
-				// Betalsidan skickar bara approved eller declined. Annat ger on-hold för manuell kontroll.
-				$result = $this->outcome_unknown( $order, 'Okänd status vid retur: ' . ( $status ? $status : 'saknas' ) );
-		}
-
-		// Lyckat → tack-sidan. Misslyckat → tillbaka till kassan där felmeddelandet visas.
-		wp_safe_redirect( 'success' === $result['result'] ? $result['redirect'] : wc_get_checkout_url() );
-		exit;
-	}
-
-	/**
-	 * GODKÄNT: status processing, lagret dras, referensen sparas.
-	 *
-	 * @param WC_Order $order     Ordern.
-	 * @param string   $reference Leverantörens referens.
-	 * @return array<string, string>
-	 */
-	private function outcome_approved( $order, $reference ) {
-		$this->log( 'Godkänd. Referens: ' . ( $reference ? $reference : 'saknas' ), 'info', $order );
-		// payment_complete() sparar transaktions-ID, sätter betaldatum,
-		// byter status till processing och drar lagret.
-		$order->payment_complete( $reference );
-
-		$order->add_order_note(
-			$reference
-			? 'Betalning godkänd. Leverantörens referens: ' . $reference
-			: 'Betalning godkänd, men leverantören skickade ingen referens. Stäm av manuellt.'
-		);
-
-		WC()->cart->empty_cart();
-		return array(
-			'result'   => 'success',
-			'redirect' => $this->get_return_url( $order ),
-		);
-	}
-
-	/**
-	 * VÄNTANDE: status on-hold, lagret reserveras.
-	 *
-	 * @param WC_Order $order     Ordern.
-	 * @param string   $reference Leverantörens referens.
-	 * @return array<string, string>
-	 */
-	private function outcome_pending( $order, $reference ) {
-		$this->log( 'Väntande. Referens: ' . ( $reference ? $reference : 'saknas' ), 'info', $order );
-
-		$this->save_reference( $order, $reference );
-
-		// WooCommerce drar lagret automatiskt när status blir on-hold.
-		$order->update_status( 'on-hold', 'Betalningen väntar på bekräftelse från leverantören. Referens: ' . ( $reference ? $reference : 'saknas' ) );
-
-		WC()->cart->empty_cart();
-		return array(
-			'result'   => 'success',
-			'redirect' => $this->get_return_url( $order ),
-		);
-	}
-
-	/**
-	 * NEKAT: status failed, lagret återställs, kunden stannar i kassan.
-	 *
-	 * @param WC_Order $order     Ordern.
-	 * @param string   $reference Leverantörens referens.
-	 * @param string   $reason    Orsaken till att betalningen nekades.
-	 * @return array<string, string>
-	 */
-	private function outcome_declined( $order, $reference, $reason ) {
-		$this->log( "Nekad ({$reason}). Referens: " . ( $reference ? $reference : 'saknas' ), 'warning', $order );
-
-		$this->save_reference( $order, $reference );
-
-		// Lämna tillbaka lager om det redan dragits (t.ex. vid ett tidigare försök som blev on-hold).
-		// Funktionen gör ingenting om inget lager har dragits.
-		wc_increase_stock_levels( $order );
-
-		$order->update_status( 'failed', "Betalningen nekades ({$reason}). Referens: " . ( $reference ? $reference : 'saknas' ) );
-
-		wc_add_notice( esc_html( 'Betalningen nekades. Försök igen eller välj ett annat betalsätt.' ), 'error' );
-		return array( 'result' => 'failure' );
-	}
-
-	/**
-	 * TEKNISKT FEL (säkert ingen betalning): som nekat, men loggas.
-	 *
-	 * @param WC_Order $order   Ordern.
-	 * @param string   $message Felmeddelande.
-	 * @return array<string, string>
-	 */
-	private function outcome_error( $order, $message ) {
-		$this->log( 'Tekniskt fel: ' . $message, 'error', $order );
-
-		wc_increase_stock_levels( $order );
-
-		$order->update_status( 'failed', 'Tekniskt fel, ingen betalning genomförd: ' . $message );
-
-		wc_add_notice( esc_html( 'Betalningen kunde inte genomföras just nu. Försök igen om en stund.' ), 'error' );
-		return array( 'result' => 'failure' );
-	}
-
-	/**
-	 * OKÄNT UTFALL (timeout, otolkbart svar): on-hold, en människa kontrollerar.
-	 *
-	 * @param WC_Order $order   Ordern.
-	 * @param string   $message Felmeddelande.
-	 * @return array<string, string>
-	 */
-	private function outcome_unknown( $order, $message ) {
-		$this->log( 'OKÄNT UTFALL, kräver manuell kontroll: ' . $message, 'error', $order );
-
-		$order->update_status( 'on-hold', 'OKÄNT UTFALL. Kontrollera hos betalleverantören innan kunden debiteras igen. ' . $message );
-
-		// Kunden får inte försöka igen i kassan (risk för dubbeldebitering).
-		WC()->cart->empty_cart();
-		return array(
-			'result'   => 'success',
-			'redirect' => $this->get_return_url( $order ),
-		);
+	private function should_show_instructions( $order ) {
+		return $order instanceof WC_Order
+			&& $this->id === $order->get_payment_method()
+			&& ( $order->is_paid() || $order->has_status( 'on-hold' ) );
 	}
 
 	/* ---------- Hjälpfunktioner ---------- */
+
+	/**
+	 * Signerar delarna med den delade hemligheten (HMAC-SHA256).
+	 *
+	 * @param array<int, int|string> $parts Värdena som ska signeras, i ordning.
+	 * @return string
+	 */
+	private function sign( $parts ) {
+		return hash_hmac( 'sha256', implode( '|', $parts ), $this->get_option( 'shared_secret' ) );
+	}
+
+	/**
+	 * Skickar kunden vidare och avslutar anropet.
+	 *
+	 * @param string $url Adressen.
+	 * @return never
+	 */
+	private function redirect( $url ) {
+		wp_safe_redirect( $url );
+		exit;
+	}
 
 	/**
 	 * Sparar referensen i WooCommerce standardfält för transaktions-ID.
@@ -568,6 +654,28 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			return '';
 		}
 		return sanitize_text_field( wp_unslash( $_GET[ $name ] ) );
+	}
+
+	/**
+	 * Hämtar ett textfält ur API-svaret som rensad text. JSON-värden kan ha vilken typ som helst.
+	 *
+	 * @param array<mixed, mixed> $data     Det avkodade svaret.
+	 * @param string              $key      Fältets namn.
+	 * @param string              $fallback Värdet om fältet saknas eller inte är text.
+	 * @return string
+	 */
+	private function text_field( $data, $key, $fallback ) {
+		return isset( $data[ $key ] ) && is_string( $data[ $key ] ) ? sanitize_text_field( $data[ $key ] ) : $fallback;
+	}
+
+	/**
+	 * Texten, eller "saknas" om den är tom. Används i loggar och ordernoteringar.
+	 *
+	 * @param string $value Texten.
+	 * @return string
+	 */
+	private function or_missing( $value ) {
+		return '' !== $value ? $value : 'saknas';
 	}
 
 	/**

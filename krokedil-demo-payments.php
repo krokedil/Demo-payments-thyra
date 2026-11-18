@@ -42,6 +42,7 @@ function kdp_init() {
 	}
 
 	// Klasserna laddas först här, när WooCommerce finns.
+	require_once __DIR__ . '/classes/settings.php';
 	require_once __DIR__ . '/classes/gateway.php';
 	require_once __DIR__ . '/classes/blocks-support.php';
 	require_once __DIR__ . '/classes/assets.php';
