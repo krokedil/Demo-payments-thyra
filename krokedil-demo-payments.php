@@ -42,9 +42,9 @@ function kdp_init() {
 	}
 
 	// Klasserna laddas först här, när WooCommerce finns.
-	require_once __DIR__ . '/classes/gateway.php';
-	require_once __DIR__ . '/classes/blocks-support.php';
-	require_once __DIR__ . '/classes/assets.php';
+	require_once __DIR__ . '/classes/class-kdp-wc-gateway.php';
+	require_once __DIR__ . '/classes/class-kdp-blocks-support.php';
+	require_once __DIR__ . '/classes/class-kdp-assets.php';
 
 	// Laddar CSS:en för ikonen i kassan.
 	add_action( 'wp_enqueue_scripts', array( 'KDP_Assets', 'enqueue_checkout_style' ) );

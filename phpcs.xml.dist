@@ -7,9 +7,5 @@
     <exclude-pattern>mock-*.php</exclude-pattern>
     <arg name="extensions" value="php"/>
     <arg value="sp"/>
-    <rule ref="WordPress">
-        <exclude name="Generic.Files.OneObjectStructurePerFile.MultipleFound"/>
-        <exclude name="WordPress.Files.FileName.InvalidClassFileName"/>
-        <exclude name="WordPress.Security.NonceVerification.Recommended"/>
-    </rule>
+    <rule ref="WordPress"/>
 </ruleset>

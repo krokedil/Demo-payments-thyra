@@ -83,6 +83,8 @@ composer stan          # PHPStan, inställningar i phpstan.neon.dist
 ```
 
 phpcs undantar `mock-payment.php` och `mock-redirect.php`, eftersom de körs utanför WordPress.
+Inga regler i WordPress-standarden är avstängda. Där en regel inte passar finns en
+`// phpcs:ignore` med en kort motivering i koden.
 PHPStan använder WordPress- och WooCommerce-stubs och körs på nivå 9, den högsta nivån.
 
 | Körsätt | Resultat |

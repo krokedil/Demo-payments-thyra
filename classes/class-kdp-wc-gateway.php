@@ -587,10 +587,12 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * @return string
 	 */
 	private function query_arg( $name ) {
-		if ( ! isset( $_GET[ $name ] ) || ! is_string( $_GET[ $name ] ) ) {
+		// En nonce passar inte här: anropet kommer från betalsidan, inte från ett formulär på sajten.
+		// Returen skyddas i stället av order-nyckeln och HMAC-signaturen i handle_return().
+		if ( ! isset( $_GET[ $name ] ) || ! is_string( $_GET[ $name ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Verifieras med HMAC-signatur.
 			return '';
 		}
-		return sanitize_text_field( wp_unslash( $_GET[ $name ] ) );
+		return sanitize_text_field( wp_unslash( $_GET[ $name ] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Verifieras med HMAC-signatur.
 	}
 
 	/**
