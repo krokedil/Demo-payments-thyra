@@ -109,6 +109,22 @@ PHPStan använder WordPress- och WooCommerce-stubs och körs på nivå 9, den h�
 | PHPStan på originalkoden | Klarar inte nivå 0 (89 fel). Klasserna låg inuti `kdp_init()`, så PHPStan hittade dem inte. |
 | PHPStan efter kodändringar med Claude-hjälp | Nivå 9, 0 fel |
 
+## Inför del 3
+Rekommendation från Claude
+Gatewayen (`classes/class-kdp-wc-gateway.php`) innehåller fortfarande flera ansvarsområden:
+starta betalningen, inline-anropet, redirect-returen, orderutfallen och instruktionerna.
+
+**Inline och redirect** ligger kvar i gatewayen med avsikt. I Del 3 ersätts de av MockPay och
+en API-klass, så det lönar sig inte att dela upp kod som snart tas bort.
+
+**Två delar finns kvar efter Del 3** och ska därför bli egna klasser:
+
+- `KDP_Instructions`: tack-sidan, ordermejlen och `print_instructions()`.
+- `KDP_Order_Outcomes`: utfallen godkänt, väntande, nekat, tekniskt fel och okänt. MockPay-flödet
+  i Del 3 använder samma utfall.
+
+Kvar i gatewayen blir inställningarna och starten av betalningen.
+
 ## Ofärdigt
 
 - **Dubbelklick:** inget skydd på serversidan mot två samtidiga betalförsök, vilket kan ge dubbel debitering.
