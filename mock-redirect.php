@@ -35,7 +35,8 @@ if (!hash_equals($expected, $signature)) {
 function result_link($return_url, $params)
 {
     $sep = (strpos($return_url, '?') === false) ? '?' : '&';
-    return htmlspecialchars($return_url . $sep . http_build_query($params));
+    // Escapas i mallen, när länken skrivs ut.
+    return $return_url . $sep . http_build_query($params);
 }
 
 // Signerar resultatet: order, status, referens och belopp.

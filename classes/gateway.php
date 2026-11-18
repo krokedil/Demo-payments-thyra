@@ -100,7 +100,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 				'description' => sprintf(
 					/* translators: %s: adress till WooCommerces loggsida. */
 					__( 'Loggarna finns under <a href="%s">WooCommerce → Status → Loggar</a> med källan "krokedil-demo-payments".', 'krokedil-demo-payments' ),
-					admin_url( 'admin.php?page=wc-status&tab=logs' )
+					esc_url( admin_url( 'admin.php?page=wc-status&tab=logs' ) )
 				),
 				'default'     => 'yes',
 			),
@@ -340,7 +340,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 
 		// Order-nyckeln måste stämma, annars kan vem som helst ändra andras ordrar.
 		if ( ! $order instanceof WC_Order || ! $order->key_is_valid( $key ) || $this->id !== $order->get_payment_method() ) {
-			wp_die( 'Ogiltig order.', 'Fel', array( 'response' => 400 ) );
+			wp_die( esc_html( 'Ogiltig order.' ), esc_html( 'Fel' ), array( 'response' => 400 ) );
 		}
 
 		// --- Verifiera att svaret kommer från betalleverantören ---
@@ -351,7 +351,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 		if ( '' === $secret ) {
 			// Felkonfiguration: utan nyckel kan inget svar verifieras, så inget godkänns.
 			$this->log( 'Delad hemlighet saknas i inställningarna, retur kan inte verifieras.', 'error', $order );
-			wp_die( 'Betalsättet är inte korrekt konfigurerat.', 'Fel', array( 'response' => 500 ) );
+			wp_die( esc_html( 'Betalsättet är inte korrekt konfigurerat.' ), esc_html( 'Fel' ), array( 'response' => 500 ) );
 		}
 
 		$expected = hash_hmac( 'sha256', implode( '|', array( $order_id, $status, $reference, $amount ) ), $secret );
@@ -360,7 +360,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 		if ( ! hash_equals( $expected, $signature ) ) {
 			$this->log( 'OGILTIG SIGNATUR vid retur. Möjligt manipulationsförsök. Status i URL: ' . $status, 'error', $order );
 			$order->add_order_note( 'Retur med ogiltig signatur avvisades. Orderstatus ändrades inte.' );
-			wc_add_notice( 'Betalningen kunde inte verifieras. Kontakta butiken om du har betalat.', 'error' );
+			wc_add_notice( esc_html( 'Betalningen kunde inte verifieras. Kontakta butiken om du har betalat.' ), 'error' );
 			wp_safe_redirect( wc_get_checkout_url() );
 			exit;
 		}
@@ -466,7 +466,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 
 		$order->update_status( 'failed', "Betalningen nekades ({$reason}). Referens: " . ( $reference ? $reference : 'saknas' ) );
 
-		wc_add_notice( 'Betalningen nekades. Försök igen eller välj ett annat betalsätt.', 'error' );
+		wc_add_notice( esc_html( 'Betalningen nekades. Försök igen eller välj ett annat betalsätt.' ), 'error' );
 		return array( 'result' => 'failure' );
 	}
 
@@ -484,7 +484,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 
 		$order->update_status( 'failed', 'Tekniskt fel, ingen betalning genomförd: ' . $message );
 
-		wc_add_notice( 'Betalningen kunde inte genomföras just nu. Försök igen om en stund.', 'error' );
+		wc_add_notice( esc_html( 'Betalningen kunde inte genomföras just nu. Försök igen om en stund.' ), 'error' );
 		return array( 'result' => 'failure' );
 	}
 

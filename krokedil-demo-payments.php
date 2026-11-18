@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Talar om för WooCommerce att pluginet fungerar med HPOS (custom_order_tables) och blockkassan.
-// Med HPOS sparas ordrar i egna tabeller. 
+// Med HPOS sparas ordrar i egna tabeller.
 add_action(
 	'before_woocommerce_init',
 	function () {
