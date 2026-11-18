@@ -48,7 +48,7 @@ class KDP_Blocks_Support extends AbstractPaymentMethodType {
 			'kdp-blocks',
 			plugin_dir_url( __DIR__ ) . 'assets/js/index.js',
 			array( 'wc-blocks-registry', 'wc-settings', 'wp-element' ),
-			'1.0.0',
+			KDP_VERSION,
 			true
 		);
 		return array( 'kdp-blocks' );

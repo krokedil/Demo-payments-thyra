@@ -18,6 +18,8 @@
         "php-stubs/wordpress-stubs": "^7.1"
     },
     "scripts": {
+        "lint": "phpcs",
+        "lint:fix": "phpcbf",
         "stan": "phpstan analyse --no-progress"
     }
 }

@@ -6,8 +6,16 @@
  */
 // Samma nyckel som i gatewayens inställningar. I verkligheten är det leverantören
 // som skapar nyckeln, och butiken klistrar in den i sina inställningar.
-//Vet att secrets ej ska ligga i klartext i koden, men detta är bara en demo. I verkligheten ska den ligga i databas eller config-fil.
-const SHARED_SECRET = 'hmo<iRvl\_N25!u362IrC3;d';
+// Nyckeln ligger i mock-config.php, som git ignorerar, så att den aldrig hamnar i repot.
+$config = is_readable(__DIR__ . '/mock-config.php') ? require __DIR__ . '/mock-config.php' : [];
+$secret = is_array($config) ? (string) ($config['shared_secret'] ?? '') : '';
+
+if ('' === $secret) {
+    // Utan nyckel kan inget signeras, så sidan avbryter i stället för att signera med en tom nyckel.
+    http_response_code(500);
+    exit('Mock-betalsidan saknar nyckel. Kopiera mock-config.example.php till mock-config.php.');
+}
+define('SHARED_SECRET', $secret);
 
 $return_url = $_GET['return_url'] ?? '';
 $order_id = $_GET['order_id'] ?? '?';

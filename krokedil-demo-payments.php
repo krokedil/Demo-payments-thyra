@@ -6,6 +6,7 @@
  * Author: Thyra Nyström
  * Text Domain: krokedil-demo-payments
  * Requires at least: 7
+ * Requires PHP: 8.0
  * Requires Plugins: woocommerce
  *
  * @package KrokedilDemoPayments
@@ -15,6 +16,10 @@
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
+
+// Pluginets version. Används som cache-version för CSS och JS, så att webbläsaren hämtar nya
+// filer när versionen höjs. Ska vara samma som Version i headern ovan.
+define( 'KDP_VERSION', '1.0.0' );
 
 // Talar om för WooCommerce att pluginet fungerar med HPOS (custom_order_tables) och blockkassan.
 // Med HPOS sparas ordrar i egna tabeller.
@@ -42,10 +47,10 @@ function kdp_init() {
 	}
 
 	// Klasserna laddas först här, när WooCommerce finns.
-	require_once __DIR__ . '/classes/settings.php';
-	require_once __DIR__ . '/classes/gateway.php';
-	require_once __DIR__ . '/classes/blocks-support.php';
-	require_once __DIR__ . '/classes/assets.php';
+	require_once __DIR__ . '/classes/class-kdp-settings.php';
+	require_once __DIR__ . '/classes/class-kdp-wc-gateway.php';
+	require_once __DIR__ . '/classes/class-kdp-blocks-support.php';
+	require_once __DIR__ . '/classes/class-kdp-assets.php';
 
 	// Laddar CSS:en för ikonen i kassan.
 	add_action( 'wp_enqueue_scripts', array( 'KDP_Assets', 'enqueue_checkout_style' ) );

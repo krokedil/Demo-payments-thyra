@@ -19,6 +19,6 @@ class KDP_Assets {
 			return;
 		}
 
-		wp_enqueue_style( 'kdp-checkout', plugin_dir_url( __DIR__ ) . 'assets/css/frontend.css', array(), '1.0.0' );
+		wp_enqueue_style( 'kdp-checkout', plugin_dir_url( __DIR__ ) . 'assets/css/frontend.css', array(), KDP_VERSION );
 	}
 }

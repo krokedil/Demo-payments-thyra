@@ -22,8 +22,9 @@ Mock-endpointen finns i filerna mock-payment.php och mock-redirect.php
 Tillgängliga scenarier: `approved`, `declined`, `pending`, `error500`, `error400`, `badjson` (200 med trasig JSON) och `timeout` (svarar efter 20 s, längre än gatewayens timeout på 15 s).
 
 **Redirect: `mock-redirect.php`.** En betalsida med knapparna Godkänn och Neka.
-1. Skapa en nyckel: t.ex med en random password generator
-2. Lägg in den i `mock-redirect.php`: `const SHARED_SECRET = '<nyckeln>';`
+1. Kopiera `mock-config.example.php` till `mock-config.php`.
+2. Skapa en nyckel, till exempel med `openssl rand -hex 32`, och lägg in den som `shared_secret` i `mock-config.php`.
+   `mock-config.php` ignoreras av git, så nyckeln hamnar aldrig i repot.
 3. Klistra in samma nyckel i inställningen **Delad hemlighet**.
 4. Sätt endpoint-URL:en till filens adress, utan `scenario`.
 
@@ -36,7 +37,7 @@ testprodukt och mock-endpointsen ovan. Inga riktiga betalningar genomförs.
 
 - [ ] Gatewayen är aktiverad under **WooCommerce → Inställningar → Betalningar → Krokedil Demo Payments** och **Loggning** är ikryssad.
 - [ ] Mock-endpointsen svarar på en adress som WordPress-servern når, till exempel sajtens egen adress följt av `/wp-content/plugins/Krokedil demo payments/mock-payment.php`.
-- [ ] **Delad hemlighet** i inställningarna är samma som `SHARED_SECRET` i `mock-redirect.php`.
+- [ ] **Delad hemlighet** i inställningarna är samma som `shared_secret` i `mock-config.php`.
 - [ ] Varukorgen innehåller en testprodukt. Öppna shortcode-kassans sida och en sida med WooCommerce Checkout-blocket.
 
 ### Kör i vardera kassan
@@ -77,12 +78,14 @@ testprodukt och mock-endpointsen ovan. Inga riktiga betalningar genomförs.
 Installera utvecklingsberoendena med `composer install`. Kör sedan, i pluginmappen:
 
 ```sh
-./vendor/bin/phpcs     # WordPress-standarden, regler i phpcs.xml.dist
-./vendor/bin/phpcbf    # rättar formateringsfel automatiskt
+composer lint          # phpcs med WordPress-standarden, regler i phpcs.xml.dist
+composer lint:fix      # phpcbf, rättar formateringsfel automatiskt
 composer stan          # PHPStan, inställningar i phpstan.neon.dist
 ```
 
-phpcs undantar `mock-payment.php` och `mock-redirect.php`, eftersom de körs utanför WordPress.
+phpcs undantar mockfilerna (`mock-*.php`), eftersom de körs utanför WordPress. Inga regler i
+WordPress-standarden är avstängda. Där en regel inte passar finns en `// phpcs:ignore` med en
+kort motivering i koden.
 PHPStan använder WordPress- och WooCommerce-stubs och körs på nivå 9, den högsta nivån.
 
 | Körsätt | Resultat |

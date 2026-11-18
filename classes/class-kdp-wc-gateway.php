@@ -14,7 +14,7 @@
 class KDP_WC_Gateway extends WC_Payment_Gateway {
 
 	// Egen källa: gör att loggarna får en egen fil och går att filtrera fram i WooCommerce → Status → Loggar.
-	const LOG_SOURCE = 'krokedil-demo-payments';
+	private const LOG_SOURCE = 'krokedil-demo-payments';
 
 	/**
 	 * Sätter upp betalningsmetoden och dess hooks.
@@ -39,8 +39,8 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			}
 		);
 
-		add_action( 'woocommerce_thankyou_' . $this->id, array( $this, 'kdp_thankyou_page' ) );
-		add_action( 'woocommerce_email_after_order_table', array( $this, 'kdp_email_instructions' ), 10, 3 );
+		add_action( 'woocommerce_thankyou_' . $this->id, array( $this, 'thankyou_page' ) );
+		add_action( 'woocommerce_email_after_order_table', array( $this, 'email_instructions' ), 10, 3 );
 
 		// Tar emot kunden när hen kommer tillbaka från betalsidan (redirect-läget).
 		add_action( 'woocommerce_api_' . $this->id . '_return', array( $this, 'handle_return' ) );
@@ -519,7 +519,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * @param int $order_id Order-ID.
 	 * @return void
 	 */
-	public function kdp_thankyou_page( $order_id ) {
+	public function thankyou_page( $order_id ) {
 		$this->print_instructions( wc_get_order( $order_id ) );
 	}
 
@@ -531,7 +531,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * @param bool         $plain_text    Om mejlet är i ren text.
 	 * @return void
 	 */
-	public function kdp_email_instructions( $order, $sent_to_admin, $plain_text = false ) {
+	public function email_instructions( $order, $sent_to_admin, $plain_text = false ) {
 		// WooCommerce skickar orderobjektet. wc_get_order() klarar både ett orderobjekt och ett ID.
 		$this->print_instructions( wc_get_order( $order ), (bool) $plain_text );
 	}
@@ -650,10 +650,12 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * @return string
 	 */
 	private function query_arg( $name ) {
-		if ( ! isset( $_GET[ $name ] ) || ! is_string( $_GET[ $name ] ) ) {
+		// En nonce passar inte här: anropet kommer från betalsidan, inte från ett formulär på sajten.
+		// Returen skyddas i stället av order-nyckeln och HMAC-signaturen i handle_return().
+		if ( ! isset( $_GET[ $name ] ) || ! is_string( $_GET[ $name ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Verifieras med HMAC-signatur.
 			return '';
 		}
-		return sanitize_text_field( wp_unslash( $_GET[ $name ] ) );
+		return sanitize_text_field( wp_unslash( $_GET[ $name ] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Verifieras med HMAC-signatur.
 	}
 
 	/**
