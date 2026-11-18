@@ -15,11 +15,15 @@
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
-// Funktionalitet för att WooCommerce Blocks ska känna igen pluginet.
+// Talar om för WooCommerce att pluginet fungerar med HPOS (custom_order_tables) och blockkassan.
+// Med HPOS sparas ordrar i egna tabeller. Pluginet läser och sparar ordrar bara via WC_Order
+// (wc_get_order(), update_status(), set_transaction_id() osv.) och aldrig direkt i
+// wp_posts/wp_postmeta, så det fungerar med båda lagringssätten.
 add_action(
 	'before_woocommerce_init',
 	function () {
 		if ( class_exists( '\Automattic\WooCommerce\Utilities\FeaturesUtil' ) ) {
+			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true );
 			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'cart_checkout_blocks', __FILE__, true );
 		}
 	}
