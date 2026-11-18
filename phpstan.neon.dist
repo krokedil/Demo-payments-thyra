@@ -1,0 +1,7 @@
+parameters:
+	level: 9
+	paths:
+		- krokedil-demo-payments.php
+	bootstrapFiles:
+		- vendor/php-stubs/woocommerce-stubs/woocommerce-stubs.php
+	tmpDir: vendor/phpstan/cache
