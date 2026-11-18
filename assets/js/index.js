@@ -2,13 +2,14 @@ const { registerPaymentMethod } = window.wc.wcBlocksRegistry;
 const { getSetting } = window.wc.wcSettings;
 const { createElement } = window.wp.element;
 
-//Lade till supports för att kunna använda produkterna i checkouten
-const settings = getSetting("kdp_gateway_data", {}); //Hämtar inställningarna för betalningsmetoden från WooCommerce Blocks
+// Inställningarna kommer från KDP_Blocks_Support::get_payment_method_data() i PHP.
+const settings = getSetting("kdp_gateway_data", {});
 const title = settings.title || "Krokedil Demo Payments";
 const description = settings.description || "";
-const Content = () => createElement("p", null, description); //Skapar en Content komponent som visar beskrivningen av betalningsmetoden
+// Visar beskrivningen under betalsättet, både i kassan och i redigeraren.
+const Content = () => createElement("p", null, description);
 
-//registrerar betalningsmetoden för WooCommerce Blocks
+// Registrerar betalningsmetoden i blockkassan.
 registerPaymentMethod({
   name: "kdp_gateway",
   label: title,
@@ -16,7 +17,6 @@ registerPaymentMethod({
   content: createElement(Content),
   edit: createElement(Content),
   canMakePayment: () => true,
-  //Claude: lade till supports för att kunna använda produkterna i checkouten
   supports: {
     features: ["products"],
   },

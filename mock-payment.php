@@ -1,5 +1,5 @@
 <?php
-//Claude, var svårt att hitta info om hur man gör
+// Mock för inline-läget: svaret styrs av parametern scenario.
 $scenario = $_GET['scenario'] ?? '';
 
 switch ($scenario) {

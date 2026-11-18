@@ -21,12 +21,10 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 		$this->method_title       = 'Krokedil Demo Payments';
 		$this->method_description = 'En demo-betalningsmetod';
 		$this->icon               = plugin_dir_url( __DIR__ ) . 'icon.jpg';
-		$this->has_fields         = false;
 
 		$this->init_form_fields();
 		$this->init_settings();
 
-		$this->enabled     = $this->get_option( 'enabled' );
 		$this->title       = $this->get_option( 'title' );
 		$this->description = $this->get_option( 'description' );
 
@@ -79,7 +77,6 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 				'default'     => __( 'Tack för din beställning!', 'krokedil-demo-payments' ),
 				'desc_tip'    => true,
 			),
-			// Del 3, punkt 2.
 			'endpoint_url'  => array(
 				'title'       => 'Endpoint-URL',
 				'type'        => 'url',
@@ -96,7 +93,6 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 				),
 				'default' => 'manual',
 			),
-			// Loggning, punkt 3.7.
 			'logging'       => array(
 				'title'       => __( 'Loggning', 'krokedil-demo-payments' ),
 				'type'        => 'checkbox',
@@ -108,7 +104,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 				),
 				'default'     => 'yes',
 			),
-			// Secret key för att verifiera returer från leverantören (redirect-läget).
+			// Används för att signera och verifiera redirect-flödet.
 			'shared_secret' => array(
 				'title'       => __( 'Delad hemlighet', 'krokedil-demo-payments' ),
 				'type'        => 'password',
@@ -119,7 +115,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Funktion som körs när betalningen genomförs.
+	 * Körs när kunden lägger beställningen.
 	 *
 	 * @param int $order_id Order-ID.
 	 * @return array<string, string>
@@ -133,7 +129,6 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			return array( 'result' => 'failure' );
 		}
 
-		// Del 3, lägger till funktion för api-anrop.
 		// MANUELLT: inget API-anrop. Ordern väntar på att någon bekräftar betalningen i efterhand.
 		if ( 'manual' === $mode ) {
 			$order->update_status( 'on-hold', 'Väntar på manuell betalning.' );
@@ -148,21 +143,12 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 		// så att test- och produktionsmiljö kan ha olika adresser utan kodändring.
 		$endpoint = trim( $this->get_option( 'endpoint_url' ) );
 
-		// Felhantering.
 		if ( '' === $endpoint || ! wp_http_validate_url( $endpoint ) ) {
 			return $this->outcome_error( $order, 'Endpoint-URL saknas eller är ogiltig.' );
 		}
 
-		// Switch istället för if, så att det blir lättare.
-		switch ( $mode ) {
-			case 'inline':
-				return $this->process_inline( $order, $endpoint );
-			case 'redirect':
-				return $this->process_redirect( $order, $endpoint ); // Punkt 4.2, skicka till betalsidan.
-			default:
-				// Okänt läge (t.ex. trasig inställning).
-				return $this->outcome_error( $order, 'Okänt läge: ' . $mode );
-		}
+		// Läget är manual, inline eller redirect, och manual hanteras ovan.
+		return 'inline' === $mode ? $this->process_inline( $order, $endpoint ) : $this->process_redirect( $order, $endpoint );
 	}
 
 	/**
@@ -223,21 +209,20 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Inline: anropar betal-API:t och hanterar svaret. Del 3, punkt 2. Gjort med claude.
+	 * Inline: anropar betal-API:t och hanterar svaret medan kunden stannar i kassan.
 	 *
 	 * @param WC_Order $order    Ordern.
 	 * @param string   $endpoint Adress till betal-API:t.
 	 * @return array<string, string>
 	 */
 	private function process_inline( $order, $endpoint ) {
-		// Loggning, punkt 3.7.
 		$this->log( sprintf( 'Skickar betalförfrågan till %s (%s %s).', $endpoint, $order->get_total(), $order->get_currency() ), 'info', $order );
 		// WordPress HTTP-API i stället för curl/file_get_contents:
 		// följer sajtens proxy-, timeout-, SSL- och filterinställningar.
 		$response = wp_remote_post(
 			$endpoint,
 			array(
-				'timeout' => 15, // Sätter timeout till 15 sek.
+				'timeout' => 15,
 				'headers' => array( 'Content-Type' => 'application/json' ),
 				'body'    => (string) wp_json_encode(
 					array(
@@ -249,7 +234,6 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			)
 		);
 
-		// Felhantering.
 		// FEL 1: anropet nådde aldrig fram (timeout, DNS, nätverk, blockerad av proxy ...).
 		if ( is_wp_error( $response ) ) {
 			if ( $this->is_timeout( $response ) ) {
@@ -262,7 +246,6 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 
 		$code = wp_remote_retrieve_response_code( $response );
 		$raw  = wp_remote_retrieve_body( $response );
-		// Loggning.
 		$this->log( "Svar från leverantören: HTTP {$code}, body: " . substr( $raw, 0, 500 ), 'info', $order );
 		$data = json_decode( $raw, true );
 
@@ -279,7 +262,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 		// Svaret är giltigt, agera utifrån status. JSON-värdena kontrolleras så att de är text.
 		$status    = is_string( $data['status'] ) ? $data['status'] : '';
 		$reason    = is_string( $data['reason'] ?? null ) ? $data['reason'] : 'okänd orsak';
-		$reference = sanitize_text_field( is_string( $data['transaction_id'] ?? null ) ? $data['transaction_id'] : '' ); // Sparar referens.
+		$reference = sanitize_text_field( is_string( $data['transaction_id'] ?? null ) ? $data['transaction_id'] : '' );
 
 		switch ( $status ) {
 			case 'approved':
@@ -302,13 +285,13 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * @return array<string, string>
 	 */
 	private function process_redirect( $order, $endpoint ) {
-		// Adressen kunden ska tillbaka till. Byggs av WooCommerce, inte hårdkodad.
-		// Order-nyckeln gör att ingen kan gissa sig till någon annans order.
 		$secret = $this->get_option( 'shared_secret' );
 		if ( '' === $secret ) {
 			return $this->outcome_error( $order, 'Delad hemlighet saknas, kan inte signera förfrågan.' );
 		}
 
+		// Adressen kunden ska tillbaka till. Byggs av WooCommerce, inte hårdkodad.
+		// Order-nyckeln gör att ingen kan gissa sig till någon annans order.
 		$return_url = add_query_arg(
 			array(
 				'order_id' => $order->get_id(),
@@ -341,10 +324,10 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Kunden kommer tillbaka från betalsidan. Punkt 4.4, hantera returen.
+	 * Kunden kommer tillbaka från betalsidan.
 	 *
-	 * OBS: i en riktig integration litar man inte på ?status= i URL:en,
-	 * utan verifierar en signatur eller frågar leverantörens API.
+	 * Statusen i adressen godtas bara om signaturen stämmer med den delade hemligheten,
+	 * eftersom vem som helst kan ändra en adress.
 	 *
 	 * @return void
 	 */
@@ -403,20 +386,11 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			case 'approved':
 				$result = $this->outcome_approved( $order, $reference );
 				break;
-			case 'pending':
-				$result = $this->outcome_pending( $order, $reference );
-				break;
 			case 'declined':
 				$result = $this->outcome_declined( $order, $reference, 'nekad på betalsidan' );
 				break;
-			case 'cancelled':
-				// Kunden avbröt själv: ordern ligger kvar som pending och kan betalas igen.
-				$this->log( 'Kunden avbröt betalningen.', 'info', $order );
-				$order->add_order_note( 'Kunden avbröt betalningen på betalsidan.' );
-				wc_add_notice( 'Betalningen avbröts.', 'notice' );
-				$result = array( 'result' => 'failure' );
-				break;
 			default:
+				// Betalsidan skickar bara approved eller declined. Annat ger on-hold för manuell kontroll.
 				$result = $this->outcome_unknown( $order, 'Okänd status vid retur: ' . ( $status ? $status : 'saknas' ) );
 		}
 
@@ -428,14 +402,11 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	/**
 	 * GODKÄNT: status processing, lagret dras, referensen sparas.
 	 *
-	 * Mappar ordern till orderstatus och hanterar lagret. Punkt 3.5.
-	 *
 	 * @param WC_Order $order     Ordern.
 	 * @param string   $reference Leverantörens referens.
 	 * @return array<string, string>
 	 */
 	private function outcome_approved( $order, $reference ) {
-		// Loggning.
 		$this->log( 'Godkänd. Referens: ' . ( $reference ? $reference : 'saknas' ), 'info', $order );
 		// payment_complete() sparar transaktions-ID, sätter betaldatum,
 		// byter status till processing och drar lagret.
@@ -462,7 +433,6 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * @return array<string, string>
 	 */
 	private function outcome_pending( $order, $reference ) {
-		// Loggning.
 		$this->log( 'Väntande. Referens: ' . ( $reference ? $reference : 'saknas' ), 'info', $order );
 
 		$this->save_reference( $order, $reference );
@@ -486,7 +456,6 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * @return array<string, string>
 	 */
 	private function outcome_declined( $order, $reference, $reason ) {
-		// Loggning.
 		$this->log( "Nekad ({$reason}). Referens: " . ( $reference ? $reference : 'saknas' ), 'warning', $order );
 
 		$this->save_reference( $order, $reference );
@@ -509,7 +478,6 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * @return array<string, string>
 	 */
 	private function outcome_error( $order, $message ) {
-		// Loggning.
 		$this->log( 'Tekniskt fel: ' . $message, 'error', $order );
 
 		wc_increase_stock_levels( $order );
@@ -528,7 +496,6 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * @return array<string, string>
 	 */
 	private function outcome_unknown( $order, $message ) {
-		// Loggning.
 		$this->log( 'OKÄNT UTFALL, kräver manuell kontroll: ' . $message, 'error', $order );
 
 		$order->update_status( 'on-hold', 'OKÄNT UTFALL. Kontrollera hos betalleverantören innan kunden debiteras igen. ' . $message );
@@ -544,7 +511,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	/* ---------- Hjälpfunktioner ---------- */
 
 	/**
-	 * Sparar referensen i WooCommerce standardfält för transaktions-ID, punkt 3.6.
+	 * Sparar referensen i WooCommerce standardfält för transaktions-ID.
 	 *
 	 * @param WC_Order $order     Ordern.
 	 * @param string   $reference Leverantörens referens.
@@ -569,7 +536,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Loggning: punkt 3.7.
+	 * Loggar till WooCommerce → Status → Loggar om inställningen Loggning är på.
 	 *
 	 * @param string        $message Meddelande.
 	 * @param string        $level   Loggnivå.

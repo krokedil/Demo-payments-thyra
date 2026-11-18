@@ -25,7 +25,6 @@ class KDP_Blocks_Support extends AbstractPaymentMethodType {
 	 * @return void
 	 */
 	public function initialize() {
-		$this->name     = 'kdp_gateway';
 		$settings       = get_option( 'woocommerce_kdp_gateway_settings', array() );
 		$this->settings = is_array( $settings ) ? $settings : array();
 	}
@@ -56,16 +55,14 @@ class KDP_Blocks_Support extends AbstractPaymentMethodType {
 	}
 
 	/**
-	 * Hämtar data som behövs för betalningsmetoden.
+	 * Data som index.js hämtar med getSetting( 'kdp_gateway_data' ).
 	 *
 	 * @return array<string, mixed>
 	 */
 	public function get_payment_method_data() {
 		return array(
-			'name'        => $this->name,
 			'title'       => $this->settings['title'] ?? '',
 			'description' => $this->settings['description'] ?? '',
-			'supports'    => array( 'products' ),
 		);
 	}
 }
