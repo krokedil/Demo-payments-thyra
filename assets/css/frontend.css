@@ -1,5 +1,9 @@
-/* Gör betalsättens ikoner lagom stora i kassan. */
-.wc_payment_method label img {
+/*
+ * Gör betalsättets ikon lagom stor i den klassiska kassan.
+ * WooCommerce sätter klassen payment_method_<gateway-id> på betalsättets <li>, så selektorn
+ * påverkar bara Krokedil Demo Payments och inte andra betalsätts ikoner.
+ */
+.payment_method_kdp_gateway label img {
 	max-height: 30px !important;
 	width: auto !important;
 }
