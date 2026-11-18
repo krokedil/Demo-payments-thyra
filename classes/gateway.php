@@ -75,7 +75,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			'instructions'  => array(
 				'title'       => __( 'Instruktioner', 'krokedil-demo-payments' ),
 				'type'        => 'textarea',
-				'description' => __( 'Visas på tack-sidan efter genomförd betalning.', 'krokedil-demo-payments' ),
+				'description' => __( 'Visas på tack-sidan och i ordermejlen.', 'krokedil-demo-payments' ),
 				'default'     => __( 'Tack för din beställning!', 'krokedil-demo-payments' ),
 				'desc_tip'    => true,
 			),
@@ -166,29 +166,17 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Tack-sidan.
+	 * Tack-sidan: visar inställningen "Instruktioner".
 	 *
 	 * @param int $order_id Order-ID.
 	 * @return void
 	 */
 	public function kdp_thankyou_page( $order_id ) {
-		$order = wc_get_order( $order_id );
-
-		if ( ! $order instanceof WC_Order || 'kdp_gateway' !== $order->get_payment_method() ) {
-			return;
-		}
-
-		if ( $order->is_paid() ) {
-			echo '<p>Tack! Din betalning är mottagen.</p>';
-		} elseif ( $order->has_status( 'on-hold' ) && 'manual' === $this->get_option( 'mode' ) ) {
-			echo '<p>Tack för din beställning! Vänligen överför summan i orderbekräftelsen till vårt konto.</p>';
-		} elseif ( $order->has_status( 'on-hold' ) ) {
-			echo '<p>Tack! Vi väntar på bekräftelse av din betalning och mejlar dig när den är klar.</p>';
-		}
+		$this->print_instructions( wc_get_order( $order_id ) );
 	}
 
 	/**
-	 * Instruktioner i ordermejlen.
+	 * Ordermejlen: visar inställningen "Instruktioner", i HTML- eller textmejl.
 	 *
 	 * @param WC_Order|int $order         Ordern eller dess ID.
 	 * @param bool         $sent_to_admin Om mejlet skickas till butiken.
@@ -197,30 +185,40 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 */
 	public function kdp_email_instructions( $order, $sent_to_admin, $plain_text = false ) {
 		// WooCommerce skickar orderobjektet. wc_get_order() klarar både ett orderobjekt och ett ID.
-		$order = wc_get_order( $order );
+		$this->print_instructions( wc_get_order( $order ), (bool) $plain_text );
+	}
 
-		if ( ! $order instanceof WC_Order || 'kdp_gateway' !== $order->get_payment_method() ) {
+	/**
+	 * Skriver ut inställningen "Instruktioner". Tack-sidan och mejlen använder samma funktion,
+	 * så att det butiksägaren skriver i inställningen alltid syns på båda ställena.
+	 *
+	 * Instruktionerna visas bara för ordrar med det här betalsättet som är betalda eller pausade,
+	 * inte när betalningen har misslyckats.
+	 *
+	 * @param WC_Order|WC_Order_Refund|false $order      Ordern.
+	 * @param bool                           $plain_text Om texten ska skrivas ut för ett textmejl.
+	 * @return void
+	 */
+	private function print_instructions( $order, $plain_text = false ) {
+		if ( ! $order instanceof WC_Order || $this->id !== $order->get_payment_method() ) {
 			return;
 		}
 
-		$message = '';
-		if ( $order->is_paid() ) {
-			$message = 'Tack! Din betalning är mottagen.';
-		} elseif ( $order->has_status( 'on-hold' ) && 'manual' === $this->get_option( 'mode' ) ) {
-			$message = 'Tack för din beställning! Vänligen överför summan i orderbekräftelsen till vårt konto.';
-		} elseif ( $order->has_status( 'on-hold' ) ) {
-			$message = 'Tack! Vi väntar på bekräftelse av din betalning och mejlar dig när den är klar.';
-		}
-
-		if ( '' === $message ) {
+		if ( ! $order->is_paid() && ! $order->has_status( 'on-hold' ) ) {
 			return;
 		}
 
+		$instructions = trim( $this->get_option( 'instructions' ) );
+		if ( '' === $instructions ) {
+			return;
+		}
+
+		// wp_kses_post() tillåter samma HTML som i ett inlägg och tar bort resten, till exempel <script>.
 		if ( $plain_text ) {
-			// Textmejl kan inte visa HTML, så texten skrivs ut utan taggar och följs av en tom rad.
-			echo esc_html( $message ) . "\n\n";
+			// Inga <p>-taggar i textmejl. WooCommerce tar bort eventuella taggar när textmejlet byggs.
+			echo wp_kses_post( $instructions ) . "\n\n";
 		} else {
-			echo '<p>' . esc_html( $message ) . '</p>';
+			echo wp_kses_post( wpautop( wptexturize( $instructions ) ) );
 		}
 	}
 
