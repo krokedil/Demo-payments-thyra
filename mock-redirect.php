@@ -58,50 +58,6 @@ function signed_link($return_url, $order_id, $status, $transaction_id, $amount)
 
 $approve_url = signed_link($return_url, $order_id, 'approved', 'TX' . random_int(1000, 9999), $amount);
 $decline_url = signed_link($return_url, $order_id, 'declined', '', $amount);
-?>
-<!doctype html>
-<html lang="sv">
 
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Mock-betalsida</title>
-    <style>
-        body {
-            font-family: sans-serif;
-            max-width: 400px;
-            margin: 60px auto;
-            padding: 0 16px;
-        }
-
-        a {
-            display: block;
-            margin: 12px 0;
-            padding: 14px;
-            border-radius: 6px;
-            text-align: center;
-            text-decoration: none;
-            color: #fff;
-            font-weight: bold;
-        }
-
-        .approve {
-            background: #2e7d32;
-        }
-
-        .decline {
-            background: #c62828;
-        }
-    </style>
-</head>
-
-<body>
-    <h1>Mock-betalning</h1>
-    <p>Order <strong><?= htmlspecialchars($order_id) ?></strong><br>
-        Belopp <strong><?= htmlspecialchars($amount) ?></strong></p>
-
-    <a class="approve" href="<?= $approve_url ?>">Godkänn</a>
-    <a class="decline" href="<?= $decline_url ?>">Neka</a>
-</body>
-
-</html>
+// Sidans HTML ligger i assets/html/ och CSS:en i assets/css/.
+require __DIR__ . '/assets/html/mock-redirect.php';
