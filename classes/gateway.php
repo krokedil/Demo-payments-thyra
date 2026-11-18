@@ -196,19 +196,31 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * @return void
 	 */
 	public function kdp_email_instructions( $order, $sent_to_admin, $plain_text = false ) {
-		// $order_id fanns inte här. wc_get_order() klarar både ett orderobjekt och ett ID.
+		// WooCommerce skickar orderobjektet. wc_get_order() klarar både ett orderobjekt och ett ID.
 		$order = wc_get_order( $order );
 
 		if ( ! $order instanceof WC_Order || 'kdp_gateway' !== $order->get_payment_method() ) {
 			return;
 		}
 
+		$message = '';
 		if ( $order->is_paid() ) {
-			echo '<p>Tack! Din betalning är mottagen.</p>';
+			$message = 'Tack! Din betalning är mottagen.';
 		} elseif ( $order->has_status( 'on-hold' ) && 'manual' === $this->get_option( 'mode' ) ) {
-			echo '<p>Tack för din beställning! Vänligen överför summan i orderbekräftelsen till vårt konto.</p>';
+			$message = 'Tack för din beställning! Vänligen överför summan i orderbekräftelsen till vårt konto.';
 		} elseif ( $order->has_status( 'on-hold' ) ) {
-			echo '<p>Tack! Vi väntar på bekräftelse av din betalning och mejlar dig när den är klar.</p>';
+			$message = 'Tack! Vi väntar på bekräftelse av din betalning och mejlar dig när den är klar.';
+		}
+
+		if ( '' === $message ) {
+			return;
+		}
+
+		if ( $plain_text ) {
+			// Textmejl kan inte visa HTML, så texten skrivs ut utan taggar och följs av en tom rad.
+			echo esc_html( $message ) . "\n\n";
+		} else {
+			echo '<p>' . esc_html( $message ) . '</p>';
 		}
 	}
 
