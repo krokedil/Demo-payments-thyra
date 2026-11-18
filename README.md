@@ -11,7 +11,7 @@ Detta pluginet är en betallösning som kan hantera både inline-och-redirect fl
 Varje utfall hanteras separat (godkänt, nekat, väntande, HTTP-fel, timeout och otolkbart svar) och ger en bestämd orderstatus, ordernotering och loggrad.
 
 ## Hur man laddar ned pluginet
-1.  Klona repot genom att köra: ```git clone https://github.com/thyrakrokedil/Demo-payments.git```
+1.  Klona repot genom att köra: ```git clone https://github.com/thyrakrokedil/Demo-payments-thyra.git```
 2. Aktivera pluginet i WordPress under **Tillägg-> Installerade tillägg**
 3. Om du vill, ändra inställningarna under **WooCommerce → Inställningar → Betalningar → Krokedil Demo Payments**
 
@@ -44,8 +44,8 @@ testprodukt och mock-endpointsen ovan. Inga riktiga betalningar genomförs.
 
 **Manuellt läge** (Läge: Manuellt)
 
-- [ ] Lägg beställningen: kunden kommer till tack-sidan, ordern är *Pausad* och tack-sidan visar betalinstruktionen.
-- [ ] Ordermejlet *Beställning pausad* visar samma instruktion, både som HTML-mejl och som textmejl.
+- [ ] Lägg beställningen: kunden kommer till tack-sidan, ordern är *Pausad* och tack-sidan visar texten i inställningen **Instruktioner**.
+- [ ] Ordermejlet *Beställning pausad* visar samma text, både som HTML-mejl och som textmejl.
 
 **Inline-läge** (Läge: Inline, Endpoint-URL: `…/mock-payment.php?scenario=<scenario>`)
 
@@ -67,20 +67,28 @@ testprodukt och mock-endpointsen ovan. Inga riktiga betalningar genomförs.
 - [ ] Ladda om retur-adressen efter en godkänd betalning: kunden kommer till tack-sidan och ordern behandlas inte en gång till.
 - [ ] Töm **Delad hemlighet** och lägg en beställning: kunden stannar i kassan och ordern blir *Misslyckad*.
 
+### Instruktioner, CSS och kompatibilitet
+
+- [ ] Ändra **Instruktioner** till en text med en radbrytning och lite HTML, till exempel `<strong>`. Lägg en order i manuellt läge: den nya texten syns på tack-sidan och i HTML-mejlet, med radbrytningen och fetstilen.
+- [ ] Töm **Instruktioner**: tack-sidan och mejlet visar ingen instruktion, och inga tomma rader eller taggar blir kvar.
+- [ ] `assets/css/frontend.css` laddas i kassan men inte på andra sidor (kontrollera i webbläsarens nätverksflik eller i sidans källkod).
+- [ ] **WooCommerce → Inställningar → Avancerat → Funktioner** visar pluginet som kompatibelt med både HPOS och blockkassan.
+- [ ] Under **Tillägg** går det inte att avaktivera WooCommerce medan pluginet är aktivt, och pluginet kan inte aktiveras utan WooCommerce.
+
 ### Efter varje utfall
 
 - [ ] Kontrollera orderanteckningarna och **WooCommerce → Status → Loggar** (källan `krokedil-demo-payments`).
-- [ ] Ikonen i kassan är högst 30 px hög.
 - [ ] `wp-content/debug.log` innehåller inga nya fel eller varningar från pluginet.
+- [ ] Webbläsarens konsol visar inga fel, i varken shortcode-kassan eller blockkassan.
 
 ## phpcs och PHPStan
 
 Installera utvecklingsberoendena med `composer install`. Kör sedan, i pluginmappen:
 
 ```sh
-composer lint          # phpcs med WordPress-standarden, regler i phpcs.xml.dist
-composer lint:fix      # phpcbf, rättar formateringsfel automatiskt
-composer stan          # PHPStan, inställningar i phpstan.neon.dist
+./vendor/bin/phpcs              # WordPress-standarden, regler i phpcs.xml.dist
+./vendor/bin/phpcbf             # rättar formateringsfel automatiskt
+./vendor/bin/phpstan analyse    # PHPStan, inställningar i phpstan.neon.dist
 ```
 
 phpcs undantar mockfilerna (`mock-*.php`), eftersom de körs utanför WordPress. Inga regler i
