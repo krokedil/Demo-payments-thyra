@@ -1,0 +1,26 @@
+/* Stil för mock-betalsidan (assets/html/mock-redirect.php). */
+body {
+	font-family: sans-serif;
+	max-width: 400px;
+	margin: 60px auto;
+	padding: 0 16px;
+}
+
+a {
+	display: block;
+	margin: 12px 0;
+	padding: 14px;
+	border-radius: 6px;
+	text-align: center;
+	text-decoration: none;
+	color: #fff;
+	font-weight: bold;
+}
+
+.approve {
+	background: #2e7d32;
+}
+
+.decline {
+	background: #c62828;
+}

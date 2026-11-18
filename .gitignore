@@ -1,0 +1,3 @@
+vendor/
+# Lokal konfiguration för mock-betalsidan med den delade hemligheten.
+mock-config.php
