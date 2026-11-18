@@ -18,10 +18,15 @@ Varje utfall hanteras separat (godkänt, nekat, väntande, HTTP-fel, timeout och
 ## Hur man sätter upp mock-endpointen
 Mock-endpointen finns i filerna mock-payment.php och mock-redirect.php
 
-**Inline: `mock-payment.php`.** Svaret styrs av parametern `scenario`.
+**Inline: `mock-payment.php`.** Svaret styrs av parametern `scenario`. Svaret signeras med den delade
+hemligheten i rubriken `X-KDP-Signature` och innehåller ordernumret och beloppet från förfrågan.
+Butiken godkänner bara signerade svar som gäller rätt order och belopp.
 Tillgängliga scenarier: `approved`, `declined`, `pending`, `error500`, `error400`, `badjson` (200 med trasig JSON) och `timeout` (svarar efter 20 s, längre än gatewayens timeout på 15 s).
 
-**Redirect: `mock-redirect.php`.** En betalsida med knapparna Godkänn och Neka.
+**Redirect: `mock-redirect.php`.** En betalsida med knapparna Godkänn och Neka. Varje betalförsök
+får ett engångs-ID, så en retur-länk kan bara användas en gång och bara för det senaste försöket.
+
+Båda mockfilerna läser nyckeln från `mock-config.php`. Endpoint-URL:en måste börja med `https://`.
 1. Kopiera `mock-config.example.php` till `mock-config.php`.
 2. Skapa en nyckel, till exempel med `openssl rand -hex 32`, och lägg in den som `shared_secret` i `mock-config.php`.
    `mock-config.php` ignoreras av git, så nyckeln hamnar aldrig i repot.
@@ -55,7 +60,9 @@ testprodukt och mock-endpointsen ovan. Inga riktiga betalningar genomförs.
 - [ ] `error500` och `error400`: kunden stannar i kassan med ett generellt felmeddelande och ordern blir *Misslyckad*.
 - [ ] `badjson`: ordern blir *Pausad* med en notering om okänt utfall, och kunden kommer till tack-sidan.
 - [ ] `timeout`: efter cirka 15 sekunder blir ordern *Pausad* med en notering om okänt utfall. Kunden kan inte betala igen direkt, för att undvika dubbel debitering.
-- [ ] Tom eller ogiltig Endpoint-URL: kunden stannar i kassan och ordern blir *Misslyckad*.
+- [ ] Tom eller ogiltig Endpoint-URL, eller en adress med `http://`: kunden stannar i kassan och ordern blir *Misslyckad*.
+- [ ] Ändra **Delad hemlighet** så att den inte stämmer med `mock-config.php` och använd `approved`: ordern blir *Pausad* med noteringen att svaret hade ogiltig signatur.
+- [ ] `error500`: ordernoteringen visar bara statuskoden, och svarstexten finns i loggen.
 
 **Redirect-läge** (Läge: Redirect, Endpoint-URL: `…/mock-redirect.php`)
 
@@ -65,6 +72,7 @@ testprodukt och mock-endpointsen ovan. Inga riktiga betalningar genomförs.
 - [ ] Ändra `amount` i adressfältet på betalsidan och välj **Godkänn**: betalsidan avvisar förfrågan eftersom signaturen inte stämmer.
 - [ ] Ändra `status` i retur-adressen till butiken: ordern ändras inte och noteringen visar att en retur med ogiltig signatur avvisades.
 - [ ] Ladda om retur-adressen efter en godkänd betalning: kunden kommer till tack-sidan och ordern behandlas inte en gång till.
+- [ ] Välj **Neka**, spara retur-adressen, betala ordern igen och öppna den sparade adressen under det nya försöket: länken avvisas, och ordern ändras inte.
 - [ ] Töm **Delad hemlighet** och lägg en beställning: kunden stannar i kassan och ordern blir *Misslyckad*.
 
 ### Instruktioner, CSS och kompatibilitet

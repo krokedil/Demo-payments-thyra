@@ -46,7 +46,7 @@ class KDP_Settings {
 			'endpoint_url'  => array(
 				'title'       => __( 'Endpoint-URL', 'krokedil-demo-payments' ),
 				'type'        => 'url',
-				'description' => __( 'Adress till betal-API:t (test eller produktion).', 'krokedil-demo-payments' ),
+				'description' => __( 'Adress till betal-API:t (test eller produktion). Måste börja med https://.', 'krokedil-demo-payments' ),
 				'default'     => '',
 			),
 			'mode'          => array(
@@ -70,11 +70,11 @@ class KDP_Settings {
 				),
 				'default'     => 'yes',
 			),
-			// Används för att signera och verifiera redirect-flödet.
+			// Används för att signera och verifiera inline-svaret och redirect-flödet.
 			'shared_secret' => array(
 				'title'       => __( 'Delad hemlighet', 'krokedil-demo-payments' ),
 				'type'        => 'password',
-				'description' => __( 'Nyckeln som betalleverantören signerar svaren med. Måste vara samma som i betalsidan.', 'krokedil-demo-payments' ),
+				'description' => __( 'Nyckeln som betalleverantören signerar svaren med, i både inline- och redirect-läget. Måste vara samma som i mock-config.php.', 'krokedil-demo-payments' ),
 				'default'     => '',
 			),
 		);

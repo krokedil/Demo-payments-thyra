@@ -20,6 +20,8 @@ define('SHARED_SECRET', $secret);
 $return_url = $_GET['return_url'] ?? '';
 $order_id = $_GET['order_id'] ?? '?';
 $amount = $_GET['amount'] ?? '?';
+// Engångs-ID för betalförsöket. Skickas tillbaka till butiken, som bara godtar det en gång.
+$attempt = $_GET['attempt'] ?? '';
 
 // Skicka bara tillbaka till riktiga webbadresser (inte t.ex. javascript:).
 $scheme = parse_url($return_url, PHP_URL_SCHEME); //parsar url
@@ -31,7 +33,7 @@ if (!in_array($scheme, ['http', 'https'], true)) {
 
 // Verifiera att förfrågan kommer från butiken och inte har ändrats på vägen.
 $signature = $_GET['signature'] ?? '';
-$expected = hash_hmac('sha256', implode('|', [$order_id, $amount, $return_url]), SHARED_SECRET);
+$expected = hash_hmac('sha256', implode('|', [$order_id, $amount, $attempt, $return_url]), SHARED_SECRET);
 
 if (!hash_equals($expected, $signature)) {
     http_response_code(400);
@@ -47,26 +49,27 @@ function result_link($return_url, $params)
     return $return_url . $sep . http_build_query($params);
 }
 
-// Signerar resultatet: order, status, referens och belopp.
+// Signerar resultatet: order, status, referens, belopp och försök.
 // Ändras något av dem på vägen tillbaka blir signaturen ogiltig.
-function sign_result($order_id, $status, $transaction_id, $amount)
+function sign_result($order_id, $status, $transaction_id, $amount, $attempt)
 {
-    $data = implode('|', [$order_id, $status, $transaction_id, $amount]);
+    $data = implode('|', [$order_id, $status, $transaction_id, $amount, $attempt]);
     return hash_hmac('sha256', $data, SHARED_SECRET);
 }
 
-function signed_link($return_url, $order_id, $status, $transaction_id, $amount)
+function signed_link($return_url, $order_id, $status, $transaction_id, $amount, $attempt)
 {
     return result_link($return_url, [
         'status' => $status,
         'transaction_id' => $transaction_id,
         'amount' => $amount,
-        'signature' => sign_result($order_id, $status, $transaction_id, $amount),
+        'attempt' => $attempt,
+        'signature' => sign_result($order_id, $status, $transaction_id, $amount, $attempt),
     ]);
 }
 
-$approve_url = signed_link($return_url, $order_id, 'approved', 'TX' . random_int(1000, 9999), $amount);
-$decline_url = signed_link($return_url, $order_id, 'declined', '', $amount);
+$approve_url = signed_link($return_url, $order_id, 'approved', 'TX' . random_int(1000, 9999), $amount, $attempt);
+$decline_url = signed_link($return_url, $order_id, 'declined', '', $amount, $attempt);
 
 // Sidans HTML ligger i assets/html/ och CSS:en i assets/css/.
 require __DIR__ . '/assets/html/mock-redirect.php';

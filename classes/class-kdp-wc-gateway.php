@@ -16,6 +16,10 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	// Egen källa: gör att loggarna får en egen fil och går att filtrera fram i WooCommerce → Status → Loggar.
 	private const LOG_SOURCE = 'krokedil-demo-payments';
 
+	// Ordermeta med engångs-ID:t för det pågående redirect-försöket. Varje retur-länk gäller
+	// bara det försök den skapades för och kan bara användas en gång.
+	private const ATTEMPT_META = '_kdp_attempt';
+
 	/**
 	 * Sätter upp betalningsmetoden och dess hooks.
 	 */
@@ -78,7 +82,12 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 
 		$endpoint = $this->get_endpoint();
 		if ( '' === $endpoint ) {
-			return $this->outcome_error( $order, 'Endpoint-URL saknas eller är ogiltig.' );
+			return $this->outcome_error( $order, 'Endpoint-URL saknas, är ogiltig eller använder inte https.' );
+		}
+
+		// Både inline-svaret och redirect-returen signeras med hemligheten.
+		if ( '' === $this->get_option( 'shared_secret' ) ) {
+			return $this->outcome_error( $order, 'Delad hemlighet saknas, kan inte signera eller verifiera betalningen.' );
 		}
 
 		// Läget är manual, inline eller redirect, och manual hanteras ovan.
@@ -98,16 +107,18 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Endpoint-URL:en från inställningarna, eller en tom sträng om den saknas eller är ogiltig.
+	 * Endpoint-URL:en från inställningarna, eller en tom sträng om den saknas, är ogiltig
+	 * eller inte använder https.
 	 *
 	 * Adressen kommer från inställningarna, så att test- och produktionsmiljö kan ha olika
-	 * adresser utan kodändring.
+	 * adresser utan kodändring. https krävs, annars kan någon på vägen läsa eller ändra svaret.
 	 *
 	 * @return string
 	 */
 	private function get_endpoint() {
 		$endpoint = trim( $this->get_option( 'endpoint_url' ) );
-		return wp_http_validate_url( $endpoint ) ? $endpoint : '';
+		$is_https = 'https' === wp_parse_url( $endpoint, PHP_URL_SCHEME );
+		return $is_https && wp_http_validate_url( $endpoint ) ? $endpoint : '';
 	}
 
 	/* ---------- Inline ---------- */
@@ -127,19 +138,31 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			return $this->handle_connection_error( $order, $response );
 		}
 
+		// Svarstexten kommer från leverantören och hamnar bara i loggen, aldrig i ordernoteringar.
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		$raw  = wp_remote_retrieve_body( $response );
 		$this->log( "Svar från leverantören: HTTP {$code}, body: " . substr( $raw, 0, 500 ), 'info', $order );
 
 		// FEL 2: servern svarade, men med en felkod (t.ex. 400 eller 500).
 		if ( $code < 200 || $code >= 300 ) {
-			return $this->outcome_error( $order, "HTTP {$code}: " . substr( $raw, 0, 200 ) );
+			return $this->outcome_error( $order, "Leverantören svarade med HTTP {$code}. Se loggen." );
 		}
 
-		// FEL 3: 200 OK men svaret går inte att tolka (trasig JSON eller saknad status).
+		// FEL 3: svaret är inte signerat med den delade hemligheten. Det kan vara förfalskat,
+		// så det godkänns inte. Ordern väntar på manuell kontroll.
+		if ( ! $this->is_valid_response_signature( $response, $raw ) ) {
+			return $this->outcome_unknown( $order, 'Svaret hade ogiltig signatur. Se loggen.' );
+		}
+
+		// FEL 4: 200 OK men svaret går inte att tolka (trasig JSON eller saknad status).
 		$data = json_decode( $raw, true );
 		if ( ! is_array( $data ) || empty( $data['status'] ) ) {
-			return $this->outcome_unknown( $order, 'Ogiltig JSON: ' . substr( $raw, 0, 200 ) );
+			return $this->outcome_unknown( $order, 'Svaret gick inte att tolka. Se loggen.' );
+		}
+
+		// FEL 5: svaret gäller en annan order eller ett annat belopp.
+		if ( ! $this->response_matches_order( $order, $data ) ) {
+			return $this->outcome_unknown( $order, 'Svaret gällde inte den här ordern eller beloppet.' );
 		}
 
 		return $this->handle_inline_status( $order, $data );
@@ -149,6 +172,9 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * Skickar betalförfrågan med WordPress HTTP-API, som följer sajtens proxy-, timeout-,
 	 * SSL- och filterinställningar.
 	 *
+	 * Funktionen wp_safe_remote_post() kontrollerar varje adress, även efter omdirigeringar,
+	 * så att anropet inte kan ledas vidare till en intern adress.
+	 *
 	 * @param WC_Order $order    Ordern.
 	 * @param string   $endpoint Adress till betal-API:t.
 	 * @return array<string, mixed>|WP_Error
@@ -156,7 +182,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	private function send_inline_request( $order, $endpoint ) {
 		$this->log( sprintf( 'Skickar betalförfrågan till %s (%s %s).', $endpoint, $order->get_total(), $order->get_currency() ), 'info', $order );
 
-		return wp_remote_post(
+		return wp_safe_remote_post(
 			$endpoint,
 			array(
 				'timeout' => 15,
@@ -164,7 +190,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 				'body'    => (string) wp_json_encode(
 					array(
 						'order_id' => $order->get_id(),
-						'amount'   => $order->get_total(),
+						'amount'   => $this->format_amount( $order->get_total() ),
 						'currency' => $order->get_currency(),
 					)
 				),
@@ -188,6 +214,34 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 		}
 
 		return $this->outcome_error( $order, 'Anslutningsfel: ' . $error->get_error_message() );
+	}
+
+	/**
+	 * Kontrollerar att svaret är signerat med den delade hemligheten (rubriken X-KDP-Signature,
+	 * HMAC-SHA256 av hela svarstexten).
+	 *
+	 * @param array<string, mixed> $response Svaret från WordPress HTTP-API.
+	 * @param string               $raw      Svarstexten.
+	 * @return bool
+	 */
+	private function is_valid_response_signature( $response, $raw ) {
+		$signature = wp_remote_retrieve_header( $response, 'x-kdp-signature' );
+		return is_string( $signature ) && hash_equals( $this->sign( array( $raw ) ), $signature );
+	}
+
+	/**
+	 * Kontrollerar att svaret gäller den här ordern och det belopp som skickades.
+	 *
+	 * @param WC_Order            $order Ordern.
+	 * @param array<mixed, mixed> $data  Det avkodade svaret.
+	 * @return bool
+	 */
+	private function response_matches_order( $order, $data ) {
+		$order_id = $data['order_id'] ?? null;
+
+		return is_scalar( $order_id )
+			&& (string) $order_id === (string) $order->get_id()
+			&& $this->text_field( $data, 'amount', '' ) === $this->format_amount( $order->get_total() );
 	}
 
 	/**
@@ -226,11 +280,8 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * @return array<string, string>
 	 */
 	private function process_redirect( $order, $endpoint ) {
-		if ( '' === $this->get_option( 'shared_secret' ) ) {
-			return $this->outcome_error( $order, 'Delad hemlighet saknas, kan inte signera förfrågan.' );
-		}
-
 		$return_url = $this->get_return_url_for_provider( $order );
+		$attempt    = $this->start_attempt( $order );
 		// Beloppet räknas ut en gång så att signaturen och URL:en garanterat har samma värde.
 		$amount = $this->format_amount( $order->get_total() );
 
@@ -238,9 +289,10 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			array(
 				'order_id'   => $order->get_id(),
 				'amount'     => $amount,
+				'attempt'    => $attempt,
 				'return_url' => rawurlencode( $return_url ),
-				// Om order, belopp eller retur-URL ändras på vägen blir signaturen ogiltig.
-				'signature'  => $this->sign( array( $order->get_id(), $amount, $return_url ) ),
+				// Om order, belopp, försök eller retur-URL ändras på vägen blir signaturen ogiltig.
+				'signature'  => $this->sign( array( $order->get_id(), $amount, $attempt, $return_url ) ),
 			),
 			$endpoint
 		);
@@ -249,6 +301,20 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			'result'   => 'success',
 			'redirect' => $pay_url,
 		);
+	}
+
+	/**
+	 * Skapar ett nytt engångs-ID för betalförsöket och sparar det på ordern. Ett nytt försök
+	 * ersätter det gamla, så retur-länkar från tidigare försök slutar gälla.
+	 *
+	 * @param WC_Order $order Ordern.
+	 * @return string
+	 */
+	private function start_attempt( $order ) {
+		$attempt = wp_generate_password( 32, false );
+		$order->update_meta_data( self::ATTEMPT_META, $attempt );
+		$order->save();
+		return $attempt;
 	}
 
 	/**
@@ -299,6 +365,11 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			$this->redirect( $this->get_return_url( $order ) );
 		}
 
+		// Länken måste gälla det pågående försöket och får bara användas en gång.
+		if ( ! $this->claim_attempt( $order, $params['attempt'] ) ) {
+			$this->reject_used_return( $order );
+		}
+
 		$result = $this->handle_return_status( $order, $params['status'], $params['reference'] );
 
 		// Lyckat → tack-sidan. Misslyckat → tillbaka till kassan där felmeddelandet visas.
@@ -308,7 +379,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	/**
 	 * Parametrarna som betalsidan skickar tillbaka.
 	 *
-	 * @return array{order_id: int, key: string, status: string, reference: string, amount: string, signature: string}
+	 * @return array{order_id: int, key: string, status: string, reference: string, amount: string, attempt: string, signature: string}
 	 */
 	private function get_return_params() {
 		return array(
@@ -317,6 +388,7 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 			'status'    => sanitize_key( $this->query_arg( 'status' ) ),
 			'reference' => $this->query_arg( 'transaction_id' ),
 			'amount'    => $this->query_arg( 'amount' ),
+			'attempt'   => $this->query_arg( 'attempt' ),
 			'signature' => $this->query_arg( 'signature' ),
 		);
 	}
@@ -350,11 +422,11 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 	 * Jämförelsen med hash_equals() tar lika lång tid oavsett var signaturerna skiljer sig,
 	 * så att man inte kan gissa signaturen tecken för tecken.
 	 *
-	 * @param array{order_id: int, status: string, reference: string, amount: string, signature: string} $params Returparametrarna.
+	 * @param array{order_id: int, status: string, reference: string, amount: string, attempt: string, signature: string} $params Returparametrarna.
 	 * @return bool
 	 */
 	private function is_valid_return_signature( $params ) {
-		$expected = $this->sign( array( $params['order_id'], $params['status'], $params['reference'], $params['amount'] ) );
+		$expected = $this->sign( array( $params['order_id'], $params['status'], $params['reference'], $params['amount'], $params['attempt'] ) );
 		return hash_equals( $expected, $params['signature'] );
 	}
 
@@ -369,6 +441,59 @@ class KDP_WC_Gateway extends WC_Payment_Gateway {
 		$this->log( 'OGILTIG SIGNATUR vid retur. Möjligt manipulationsförsök. Status i URL: ' . $status, 'error', $order );
 		$order->add_order_note( 'Retur med ogiltig signatur avvisades. Orderstatus ändrades inte.' );
 		wc_add_notice( esc_html__( 'Betalningen kunde inte verifieras. Kontakta butiken om du har betalat.', 'krokedil-demo-payments' ), 'error' );
+		$this->redirect( wc_get_checkout_url() );
+	}
+
+	/**
+	 * Förbrukar engångs-ID:t om det gäller det pågående försöket.
+	 *
+	 * Funktionen add_option() misslyckas om optionen redan finns, och kontrollen görs av databasen.
+	 * Optionen fungerar därför som ett lås: om två returer för samma order kommer samtidigt
+	 * får bara den ena fortsätta. Ordern läses om inifrån låset, så att ett ID som den andra
+	 * returen redan har förbrukat inte godtas.
+	 *
+	 * @param WC_Order $order   Ordern.
+	 * @param string   $attempt Engångs-ID:t från retur-länken.
+	 * @return bool
+	 */
+	private function claim_attempt( $order, $attempt ) {
+		$lock = 'kdp_return_lock_' . $order->get_id();
+		if ( '' === $attempt || ! add_option( $lock, time(), '', false ) ) {
+			return false;
+		}
+
+		$fresh = wc_get_order( $order->get_id() );
+		$valid = false;
+		if ( $fresh instanceof WC_Order ) {
+			$current = $fresh->get_meta( self::ATTEMPT_META );
+			$valid   = is_string( $current ) && '' !== $current && hash_equals( $current, $attempt );
+		}
+
+		if ( $valid ) {
+			$fresh->delete_meta_data( self::ATTEMPT_META );
+			$fresh->save();
+		}
+
+		delete_option( $lock );
+		return $valid;
+	}
+
+	/**
+	 * Avvisar en retur-länk som är gammal, redan använd eller hanteras av en annan retur just nu.
+	 * Om den andra returen redan har betalat ordern skickas kunden till tack-sidan i stället.
+	 *
+	 * @param WC_Order $order Ordern.
+	 * @return never
+	 */
+	private function reject_used_return( $order ) {
+		$fresh = wc_get_order( $order->get_id() );
+		if ( $fresh instanceof WC_Order && $fresh->is_paid() ) {
+			$this->redirect( $this->get_return_url( $fresh ) );
+		}
+
+		$this->log( 'Retur-länken var gammal eller redan använd och avvisades.', 'warning', $order );
+		$order->add_order_note( 'Retur-länk som var gammal eller redan använd avvisades. Orderstatus ändrades inte.' );
+		wc_add_notice( esc_html__( 'Länken har redan använts eller gäller ett tidigare betalförsök.', 'krokedil-demo-payments' ), 'error' );
 		$this->redirect( wc_get_checkout_url() );
 	}
 
