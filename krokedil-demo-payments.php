@@ -44,6 +44,10 @@ function kdp_init() {
 	// Klasserna laddas först här, när WooCommerce finns.
 	require_once __DIR__ . '/classes/gateway.php';
 	require_once __DIR__ . '/classes/blocks-support.php';
+	require_once __DIR__ . '/classes/assets.php';
+
+	// Laddar CSS:en för ikonen i kassan.
+	add_action( 'wp_enqueue_scripts', array( 'KDP_Assets', 'enqueue_checkout_style' ) );
 
 	// Filter, så att WooCommerce känner igen betalningsmetoden.
 	add_filter( 'woocommerce_payment_gateways', 'kdp_add_gateway' );
@@ -67,21 +71,4 @@ function kdp_init() {
 function kdp_add_gateway( $methods ) {
 	$methods[] = 'KDP_WC_Gateway';
 	return $methods;
-}
-
-// Claude, la till för att göra ikonen mindre.
-add_action( 'wp_head', 'kdp_gateway_icon_style' );
-
-/**
- * Skriver ut CSS som gör ikonen mindre.
- *
- * @return void
- */
-function kdp_gateway_icon_style() {
-	echo '<style>
-        .wc_payment_method label img {
-            max-height: 30px !important;
-            width: auto !important;
-        }
-    </style>';
 }
